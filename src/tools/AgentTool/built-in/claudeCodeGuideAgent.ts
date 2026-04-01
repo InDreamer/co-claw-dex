@@ -1,3 +1,5 @@
+import { BRAND_NAME } from 'src/constants/brand.js'
+import { isOpenAIResponsesBackendEnabled } from 'src/services/modelBackend/openaiCodexConfig.js'
 import { BASH_TOOL_NAME } from 'src/tools/BashTool/toolName.js'
 import { FILE_READ_TOOL_NAME } from 'src/tools/FileReadTool/prompt.js'
 import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
@@ -17,6 +19,8 @@ import type {
 const CLAUDE_CODE_DOCS_MAP_URL =
   'https://code.claude.com/docs/en/claude_code_docs_map.md'
 const CDP_DOCS_MAP_URL = 'https://platform.claude.com/llms.txt'
+const OPENAI_CODEX_DOCS_URL = 'https://developers.openai.com/codex/'
+const OPENAI_API_DOCS_URL = 'https://developers.openai.com/api/'
 
 export const CLAUDE_CODE_GUIDE_AGENT_TYPE = 'claude-code-guide'
 
@@ -26,6 +30,41 @@ function getClaudeCodeGuideBasePrompt(): string {
   const localSearchHint = hasEmbeddedSearchTools()
     ? `${FILE_READ_TOOL_NAME}, \`find\`, and \`grep\``
     : `${FILE_READ_TOOL_NAME}, ${GLOB_TOOL_NAME}, and ${GREP_TOOL_NAME}`
+
+  if (isOpenAIResponsesBackendEnabled()) {
+    return `You are the ${BRAND_NAME} guide agent. Your primary responsibility is helping users understand and use ${BRAND_NAME}, OpenAI Codex, and the OpenAI Responses API effectively.
+
+**Your expertise spans three domains:**
+
+1. **${BRAND_NAME}** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
+
+2. **OpenAI Codex**: Codex app and CLI concepts, sandboxing, approvals, MCP integrations, and coding-agent workflows.
+
+3. **OpenAI Responses API**: Tool calling, conversation state, streaming events, and model configuration for coding agents.
+
+**Documentation sources:**
+
+- **Local ${BRAND_NAME} source tree**: Use ${localSearchHint} first for questions about this CLI's behavior, commands, hooks, skills, settings, and integrations.
+
+- **OpenAI Codex docs** (${OPENAI_CODEX_DOCS_URL}): Fetch this for Codex app/CLI concepts, sandboxing, approvals, MCP configuration, and IDE workflows.
+
+- **OpenAI API docs** (${OPENAI_API_DOCS_URL}): Fetch this for the Responses API, function calling, streaming events, structured outputs, and model/tool semantics.
+
+**Approach:**
+1. Determine whether the question is about this CLI, Codex product behavior, or the OpenAI API
+2. Prefer local source and settings files for project-specific CLI behavior
+3. Use ${WEB_FETCH_TOOL_NAME} for official OpenAI documentation pages
+4. Use ${WEB_SEARCH_TOOL_NAME} restricted to developers.openai.com and platform.openai.com if you need to discover the right official page
+5. Provide clear, actionable guidance based on the repository and official documentation
+
+**Guidelines:**
+- Always prioritize local implementation details and official OpenAI documentation over assumptions
+- Keep responses concise and actionable
+- Include concrete commands, settings, or examples when helpful
+- Reference exact documentation URLs in your responses when you used them
+
+Complete the user's request by providing accurate, documentation-based guidance.`
+  }
 
   return `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
 
@@ -97,7 +136,9 @@ function getFeedbackGuideline(): string {
 
 export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
   agentType: CLAUDE_CODE_GUIDE_AGENT_TYPE,
-  whenToUse: `Use this agent when the user asks questions ("Can Claude...", "Does Claude...", "How do I...") about: (1) Claude Code (the CLI tool) - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via ${SEND_MESSAGE_TOOL_NAME}.`,
+  whenToUse: isOpenAIResponsesBackendEnabled()
+    ? `Use this agent when the user asks questions about ${BRAND_NAME}, OpenAI Codex, or the OpenAI Responses API: CLI features, hooks, slash commands, MCP servers, settings, IDE integrations, sandboxing, streaming, or tool-calling semantics. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via ${SEND_MESSAGE_TOOL_NAME}.`
+    : `Use this agent when the user asks questions ("Can Claude...", "Does Claude...", "How do I...") about: (1) Claude Code (the CLI tool) - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via ${SEND_MESSAGE_TOOL_NAME}.`,
   // Ant-native builds: Glob/Grep tools are removed; use Bash (with embedded
   // bfs/ugrep via find/grep aliases) for local file search instead.
   tools: hasEmbeddedSearchTools()
@@ -116,7 +157,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
       ],
   source: 'built-in',
   baseDir: 'built-in',
-  model: 'haiku',
+  model: 'gpt-5.4-mini',
   permissionMode: 'dontAsk',
   getSystemPrompt({ toolUseContext }) {
     const commands = toolUseContext.options.commands

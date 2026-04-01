@@ -1,4 +1,9 @@
 import type { PermissionMode } from '../permissions/PermissionMode.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
+import {
+  getOpenAICodexModelCatalog,
+  normalizeOpenAICompatibleModel,
+} from '../../services/modelBackend/openaiModelCatalog.js'
 import { capitalize } from '../stringUtils.js'
 import { MODEL_ALIASES, type ModelAlias } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
@@ -6,10 +11,18 @@ import {
   getCanonicalName,
   getRuntimeMainLoopModel,
   parseUserSpecifiedModel,
+  renderModelName,
 } from './model.js'
 import { getAPIProvider } from './providers.js'
 
-export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
+export const AGENT_MODEL_OPTIONS = [
+  'gpt-5.4',
+  'gpt-5.2',
+  'gpt-5.3-codex',
+  'gpt-5.4-mini',
+  ...MODEL_ALIASES,
+  'inherit',
+] as const
 export type AgentModelAlias = (typeof AGENT_MODEL_OPTIONS)[number]
 
 export type AgentModelOption = {
@@ -37,7 +50,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -108,6 +121,12 @@ export function getAgentModel(
  * since they carry semantics beyond "same tier as parent".
  */
 function aliasMatchesParentTier(alias: string, parentModel: string): boolean {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const normalizedAlias = normalizeOpenAICompatibleModel(alias)
+    const normalizedParent = normalizeOpenAICompatibleModel(parentModel)
+    return normalizedAlias !== undefined && normalizedAlias === normalizedParent
+  }
+
   const canonical = getCanonicalName(parentModel)
   switch (alias.toLowerCase()) {
     case 'opus':
@@ -125,13 +144,28 @@ export function getAgentModelDisplay(model: string | undefined): string {
   // When model is omitted, getDefaultSubagentModel() returns 'inherit' at runtime
   if (!model) return 'Inherit from parent (default)'
   if (model === 'inherit') return 'Inherit from parent'
-  return capitalize(model)
+  return renderModelName(parseUserSpecifiedModel(model))
 }
 
 /**
  * Get available model options for agents
  */
 export function getAgentModelOptions(): AgentModelOption[] {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return [
+      ...getOpenAICodexModelCatalog().map(model => ({
+        value: model.id as AgentModelAlias,
+        label: model.label,
+        description: model.description,
+      })),
+      {
+        value: 'inherit',
+        label: 'Inherit from parent',
+        description: 'Use the same model as the main conversation',
+      },
+    ]
+  }
+
   return [
     {
       value: 'sonnet',

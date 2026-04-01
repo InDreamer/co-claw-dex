@@ -7,6 +7,11 @@
  */
 import { getMainLoopModelOverride } from '../../bootstrap/state.js'
 import {
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIModel,
+} from '../../services/modelBackend/openaiCodexConfig.js'
+import { getOpenAICodexModelCatalogEntry } from '../../services/modelBackend/openaiModelCatalog.js'
+import {
   getSubscriptionType,
   isClaudeAISubscriber,
   isMaxSubscriber,
@@ -59,6 +64,17 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
  * 4. Settings (from user's saved settings)
  */
 export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const settings = getSettings_DEPRECATED() || {}
+    const specifiedModel =
+      getMainLoopModelOverride() ??
+      process.env.OPENAI_MODEL ??
+      process.env.ANTHROPIC_MODEL ??
+      settings.model ??
+      undefined
+    return specifiedModel ? resolveOpenAIModel(specifiedModel) : undefined
+  }
+
   let specifiedModel: ModelSetting | undefined
 
   const modelOverride = getMainLoopModelOverride()
@@ -103,6 +119,9 @@ export function getBestModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Opus model (3P providers may lag so keep defaults unchanged).
 export function getDefaultOpusModel(): ModelName {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return resolveOpenAIModel('opus')
+  }
   if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
   }
@@ -117,6 +136,9 @@ export function getDefaultOpusModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
 export function getDefaultSonnetModel(): ModelName {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return resolveOpenAIModel('sonnet')
+  }
   if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
   }
@@ -129,6 +151,9 @@ export function getDefaultSonnetModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
 export function getDefaultHaikuModel(): ModelName {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return resolveOpenAIModel('haiku')
+  }
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
@@ -176,6 +201,9 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return resolveOpenAIModel(process.env.OPENAI_MODEL)
+  }
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
   if (process.env.USER_TYPE === 'ant') {
     return (
@@ -286,6 +314,10 @@ export function getCanonicalName(fullModelName: ModelName): ModelShortName {
 export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const model = resolveOpenAIModel(process.env.OPENAI_MODEL)
+    return `${renderModelName(model)} · Default coding model${fastMode ? ' (fast mode supported by provider)' : ''}`
+  }
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
       return `Opus 4.6 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
@@ -299,6 +331,9 @@ export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
+    if (isOpenAIResponsesBackendEnabled()) {
+      return renderModelName(parseUserSpecifiedModel(setting))
+    }
     return 'Opus 4.6 in plan mode, else Sonnet 4.6'
   }
   return renderModelName(parseUserSpecifiedModel(setting))
@@ -333,9 +368,15 @@ export function isOpus1mMergeEnabled(): boolean {
 
 export function renderModelSetting(setting: ModelName | ModelAlias): string {
   if (setting === 'opusplan') {
+    if (isOpenAIResponsesBackendEnabled()) {
+      return renderModelName(parseUserSpecifiedModel(setting))
+    }
     return 'Opus Plan'
   }
   if (isModelAlias(setting)) {
+    if (isOpenAIResponsesBackendEnabled()) {
+      return renderModelName(parseUserSpecifiedModel(setting))
+    }
     return capitalize(setting)
   }
   return renderModelName(setting)
@@ -347,6 +388,13 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
+  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  if (openAIModel) {
+    return openAIModel.label
+  }
+  if (model === 'gpt-5') {
+    return 'GPT-5'
+  }
   switch (model) {
     case getModelStrings().opus46:
       return 'Opus 4.6'
@@ -424,10 +472,11 @@ export function renderModelName(model: ModelName): string {
  */
 export function getPublicModelName(model: ModelName): string {
   const publicName = getPublicModelDisplayName(model)
+  const providerPrefix = isOpenAIResponsesBackendEnabled() ? 'Codex' : 'Claude'
   if (publicName) {
-    return `Claude ${publicName}`
+    return `${providerPrefix} ${publicName}`
   }
-  return `Claude (${model})`
+  return `${providerPrefix} (${model})`
 }
 
 /**
@@ -575,6 +624,14 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
 
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
+
+  const openAIModel = getOpenAICodexModelCatalogEntry(canonical)
+  if (openAIModel) {
+    return openAIModel.label
+  }
+  if (canonical === 'gpt-5') {
+    return 'GPT-5'
+  }
 
   if (canonical.includes('claude-opus-4-6')) {
     return has1m ? 'Opus 4.6 (with 1M context)' : 'Opus 4.6'

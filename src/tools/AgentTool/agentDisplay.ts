@@ -3,7 +3,10 @@
  * Used by both the CLI `claude agents` handler and the interactive `/agents` command.
  */
 
-import { getDefaultSubagentModel } from '../../utils/model/agent.js'
+import {
+  getAgentModelDisplay,
+  getDefaultSubagentModel,
+} from '../../utils/model/agent.js'
 import {
   getSourceDisplayName,
   type SettingSource,
@@ -80,7 +83,7 @@ export function resolveAgentModelDisplay(
 ): string | undefined {
   const model = agent.model || getDefaultSubagentModel()
   if (!model) return undefined
-  return model === 'inherit' ? 'inherit' : model
+  return model === 'inherit' ? 'inherit' : getAgentModelDisplay(model)
 }
 
 /**

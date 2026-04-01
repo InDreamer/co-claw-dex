@@ -1,5 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
+import { getOpenAICodexModelCatalog } from '../../services/modelBackend/openaiModelCatalog.js'
 import {
   isClaudeAISubscriber,
   isMaxSubscriber,
@@ -43,6 +45,18 @@ export type ModelOption = {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const currentModel = renderDefaultModelSetting(
+      getDefaultMainLoopModelSetting(),
+    )
+    return {
+      value: null,
+      label: 'Default (recommended)',
+      description: `Use the configured Codex default (currently ${currentModel})`,
+      descriptionForModel: `Default model (currently ${currentModel})`,
+    }
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     const currentModel = renderDefaultModelSetting(
       getDefaultMainLoopModelSetting(),
@@ -269,6 +283,18 @@ function getOpusPlanOption(): ModelOption {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...getOpenAICodexModelCatalog().map(model => ({
+        value: model.id,
+        label: model.label,
+        description: model.description,
+        descriptionForModel: model.description,
+      })),
+    ]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({

@@ -1,4 +1,6 @@
 import { getSettings_DEPRECATED } from '../settings/settings.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
+import { normalizeOpenAICompatibleModel } from '../../services/modelBackend/openaiModelCatalog.js'
 import { isModelAlias, isModelFamilyAlias } from './aliases.js'
 import { parseUserSpecifiedModel } from './model.js'
 import { resolveOverriddenModel } from './modelStrings.js'
@@ -108,8 +110,18 @@ export function isModelAllowed(model: string): boolean {
   }
 
   const resolvedModel = resolveOverriddenModel(model)
-  const normalizedModel = resolvedModel.trim().toLowerCase()
-  const normalizedAllowlist = availableModels.map(m => m.trim().toLowerCase())
+  const normalizedModelBase = resolvedModel.trim().toLowerCase()
+  const normalizedModel = isOpenAIResponsesBackendEnabled()
+    ? (normalizeOpenAICompatibleModel(normalizedModelBase)?.toLowerCase() ??
+      normalizedModelBase)
+    : normalizedModelBase
+  const normalizedAllowlist = availableModels.map(entry => {
+    const normalizedEntry = entry.trim().toLowerCase()
+    return isOpenAIResponsesBackendEnabled()
+      ? (normalizeOpenAICompatibleModel(normalizedEntry)?.toLowerCase() ??
+        normalizedEntry)
+      : normalizedEntry
+  })
 
   // Direct match (alias-to-alias or full-name-to-full-name)
   // Skip family aliases that have been narrowed by specific entries —

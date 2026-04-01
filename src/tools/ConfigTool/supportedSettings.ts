@@ -98,7 +98,7 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
           .filter(o => o.value !== null)
           .map(o => o.value as string)
       } catch {
-        return ['sonnet', 'opus', 'haiku']
+        return ['gpt-5.4', 'gpt-5.2', 'gpt-5.3-codex', 'gpt-5.4-mini']
       }
     },
     validateOnWrite: v => validateModel(String(v)),
