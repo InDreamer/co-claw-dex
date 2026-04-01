@@ -12,6 +12,7 @@ import { Status, buildDiagnostics } from './Status.js';
 import { Config } from './Config.js';
 import { Usage } from './Usage.js';
 import type { LocalJSXCommandContext, CommandResultDisplay } from '../../commands.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 type Props = {
   onClose: (result?: string, options?: {
     display?: CommandResultDisplay;
@@ -20,13 +21,15 @@ type Props = {
   defaultTab: 'Status' | 'Config' | 'Usage' | 'Gates';
 };
 export function Settings(t0) {
-  const $ = _c(25);
+  const $ = _c(26);
   const {
     onClose,
     context,
     defaultTab
   } = t0;
-  const [selectedTab, setSelectedTab] = useState(defaultTab);
+  const showUsageTab = !isOpenAIResponsesBackendEnabled();
+  const initialTab = !showUsageTab && defaultTab === "Usage" ? "Status" : defaultTab;
+  const [selectedTab, setSelectedTab] = useState(initialTab);
   const [tabsHidden, setTabsHidden] = useState(false);
   const [configOwnsEsc, setConfigOwnsEsc] = useState(false);
   const [gatesOwnsEsc, setGatesOwnsEsc] = useState(false);
@@ -86,13 +89,7 @@ export function Settings(t0) {
   } else {
     t5 = $[11];
   }
-  let t6;
-  if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Tab key="usage" title="Usage"><Usage /></Tab>;
-    $[12] = t6;
-  } else {
-    t6 = $[12];
-  }
+  const t6 = showUsageTab ? <Tab key="usage" title="Usage"><Usage /></Tab> : null;
   let t7;
   if ($[13] !== contentHeight) {
     t7 = false ? [<Tab key="gates" title="Gates"><Gates onOwnsEscChange={setGatesOwnsEsc} contentHeight={contentHeight} /></Tab>] : [];
@@ -102,29 +99,30 @@ export function Settings(t0) {
     t7 = $[14];
   }
   let t8;
-  if ($[15] !== t4 || $[16] !== t5 || $[17] !== t7) {
-    t8 = [t4, t5, t6, ...t7];
-    $[15] = t4;
-    $[16] = t5;
-    $[17] = t7;
-    $[18] = t8;
+  if ($[15] !== showUsageTab || $[16] !== t4 || $[17] !== t5 || $[18] !== t7) {
+    t8 = showUsageTab ? [t4, t5, t6, ...t7] : [t4, t5, ...t7];
+    $[15] = showUsageTab;
+    $[16] = t4;
+    $[17] = t5;
+    $[18] = t7;
+    $[19] = t8;
   } else {
-    t8 = $[18];
+    t8 = $[19];
   }
   const tabs = t8;
-  const t9 = defaultTab !== "Config" && defaultTab !== "Gates";
+  const t9 = initialTab !== "Config" && initialTab !== "Gates";
   const t10 = tabsHidden || insideModal ? undefined : contentHeight;
   let t11;
-  if ($[19] !== selectedTab || $[20] !== t10 || $[21] !== t9 || $[22] !== tabs || $[23] !== tabsHidden) {
+  if ($[20] !== selectedTab || $[21] !== t10 || $[22] !== t9 || $[23] !== tabs || $[24] !== tabsHidden) {
     t11 = <Pane color="permission"><Tabs color="permission" selectedTab={selectedTab} onTabChange={setSelectedTab} hidden={tabsHidden} initialHeaderFocused={t9} contentHeight={t10}>{tabs}</Tabs></Pane>;
-    $[19] = selectedTab;
-    $[20] = t10;
-    $[21] = t9;
-    $[22] = tabs;
-    $[23] = tabsHidden;
-    $[24] = t11;
+    $[20] = selectedTab;
+    $[21] = t10;
+    $[22] = t9;
+    $[23] = tabs;
+    $[24] = tabsHidden;
+    $[25] = t11;
   } else {
-    t11 = $[24];
+    t11 = $[25];
   }
   return t11;
 }

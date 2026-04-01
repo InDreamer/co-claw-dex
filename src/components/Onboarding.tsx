@@ -5,6 +5,7 @@ import { setupTerminal, shouldOfferTerminalSetup } from '../commands/terminalSet
 import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeybindings.js';
 import { Box, Link, Newline, Text, useTheme } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
+import { getOpenAIApiKey, isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js';
 import { isAnthropicAuthEnabled } from '../utils/auth.js';
 import { normalizeApiKeyForConfig } from '../utils/authPortable.js';
 import { getCustomApiKeyStatus } from '../utils/config.js';
@@ -19,7 +20,7 @@ import { WelcomeV2 } from './LogoV2/WelcomeV2.js';
 import { PressEnterToContinue } from './PressEnterToContinue.js';
 import { ThemePicker } from './ThemePicker.js';
 import { OrderedList } from './ui/OrderedList.js';
-type StepId = 'preflight' | 'theme' | 'oauth' | 'api-key' | 'security' | 'terminal-setup';
+type StepId = 'preflight' | 'theme' | 'oauth' | 'api-key' | 'openai-auth' | 'security' | 'terminal-setup';
 interface OnboardingStep {
   id: StepId;
   component: React.ReactNode;
@@ -32,13 +33,15 @@ export function Onboarding({
 }: Props): React.ReactNode {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [skipOAuth, setSkipOAuth] = useState(false);
-  const [oauthEnabled] = useState(() => isAnthropicAuthEnabled());
+  const openAIBackend = isOpenAIResponsesBackendEnabled();
+  const [oauthEnabled] = useState(() => !openAIBackend && isAnthropicAuthEnabled());
   const [theme, setTheme] = useTheme();
   useEffect(() => {
     logEvent('tengu_began_setup', {
-      oauthEnabled
+      oauthEnabled,
+      openAIBackend
     });
-  }, [oauthEnabled]);
+  }, [oauthEnabled, openAIBackend]);
   function goToNextStep() {
     if (currentStepIndex < steps.length - 1) {
       const nextIndex = currentStepIndex + 1;
@@ -71,9 +74,9 @@ export function Onboarding({
          */}
         <OrderedList>
           <OrderedList.Item>
-            <Text>Claude can make mistakes</Text>
+            <Text>{openAIBackend ? 'The assistant can make mistakes' : 'Claude can make mistakes'}</Text>
             <Text dimColor wrap="wrap">
-              You should always review Claude&apos;s responses, especially when
+              You should always review {openAIBackend ? 'assistant' : 'Claude'}&apos;s responses, especially when
               <Newline />
               running code.
               <Newline />
@@ -83,19 +86,39 @@ export function Onboarding({
             <Text>
               Due to prompt injection risks, only use it with code you trust
             </Text>
-            <Text dimColor wrap="wrap">
-              For more details see:
-              <Newline />
-              <Link url="https://code.claude.com/docs/en/security" />
-            </Text>
+            {openAIBackend ? <Text dimColor wrap="wrap">
+                Review tool calls, file edits, and shell commands before accepting them.
+              </Text> : <Text dimColor wrap="wrap">
+                For more details see:
+                <Newline />
+                <Link url="https://code.claude.com/docs/en/security" />
+              </Text>}
           </OrderedList.Item>
         </OrderedList>
+      </Box>
+      <PressEnterToContinue />
+    </Box>;
+  const openAIAuthStep = <Box flexDirection="column" gap={1} paddingLeft={1}>
+      <Text bold>Credential check:</Text>
+      <Box flexDirection="column" width={70} gap={1}>
+        <Text>This workspace is configured to use the OpenAI/Codex Responses backend.</Text>
+        {getOpenAIApiKey() ? <Text color="success">
+            Credentials were detected. No browser login is required.
+          </Text> : <Text color="warning">
+            No OpenAI/Codex API key was detected. Set <Text bold>OPENAI_API_KEY</Text> or add it to <Text bold>~/.codex/auth.json</Text> before sending prompts.
+          </Text>}
+        <Text dimColor>
+          Use <Text bold>/login</Text> or <Text bold>claude auth status</Text> to inspect the active credential source.
+        </Text>
       </Box>
       <PressEnterToContinue />
     </Box>;
   const preflightStep = <PreflightStep onSuccess={goToNextStep} />;
   // Create the steps array - determine which steps to include based on reAuth and oauthEnabled
   const apiKeyNeedingApproval = useMemo(() => {
+    if (openAIBackend) {
+      return '';
+    }
     // Add API key step if needed
     // On homespace, ANTHROPIC_API_KEY is preserved in process.env for child
     // processes but ignored by Claude Code itself (see auth.ts).
@@ -106,7 +129,7 @@ export function Onboarding({
     if (getCustomApiKeyStatus(customApiKeyTruncated) === 'new') {
       return customApiKeyTruncated;
     }
-  }, []);
+  }, [openAIBackend]);
   function handleApiKeyDone(approved: boolean) {
     if (approved) {
       setSkipOAuth(true);
@@ -124,6 +147,12 @@ export function Onboarding({
     id: 'theme',
     component: themeStep
   });
+  if (openAIBackend) {
+    steps.push({
+      id: 'openai-auth',
+      component: openAIAuthStep
+    });
+  }
   if (apiKeyNeedingApproval) {
     steps.push({
       id: 'api-key',

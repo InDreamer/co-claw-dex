@@ -3,6 +3,7 @@ import React from 'react';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { stringWidth } from '../../ink/stringWidth.js';
 import { Ansi, Text } from '../../ink.js';
+import type { Color } from '../../ink/styles.js';
 import type { Theme } from '../../utils/theme.js';
 type DividerProps = {
   /**
@@ -15,7 +16,7 @@ type DividerProps = {
    * Theme color for the divider.
    * If not provided, dimColor is used.
    */
-  color?: keyof Theme;
+  color?: keyof Theme | Color;
 
   /**
    * Character to use for the divider line.

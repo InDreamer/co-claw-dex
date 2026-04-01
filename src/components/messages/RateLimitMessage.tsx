@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { extraUsage } from 'src/commands/extra-usage/index.js';
 import { Box, Text } from 'src/ink.js';
 import { useClaudeAiLimits } from 'src/services/claudeAiLimitsHook.js';
+import { isOpenAIResponsesBackendEnabled } from 'src/services/modelBackend/openaiCodexConfig.js';
 import { shouldProcessMockLimits } from 'src/services/rateLimitMocking.js'; // Used for /mock-limits command
 import { getRateLimitTier, getSubscriptionType, isClaudeAISubscriber } from 'src/utils/auth.js';
 import { hasClaudeAiBillingAccess } from 'src/utils/billing.js';
@@ -23,6 +24,7 @@ export function getUpsellMessage({
   isTeamOrEnterprise,
   hasBillingAccess
 }: UpsellParams): string | null {
+  if (isOpenAIResponsesBackendEnabled()) return null;
   if (!shouldShowUpsell) return null;
   if (isMax20x) {
     if (isExtraUsageCommandEnabled) {
@@ -57,7 +59,7 @@ export function RateLimitMessage(t0) {
   } = t0;
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = getSubscriptionType();
+    t1 = isOpenAIResponsesBackendEnabled() ? null : getSubscriptionType();
     $[0] = t1;
   } else {
     t1 = $[0];
@@ -65,7 +67,7 @@ export function RateLimitMessage(t0) {
   const subscriptionType = t1;
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = getRateLimitTier();
+    t2 = isOpenAIResponsesBackendEnabled() ? null : getRateLimitTier();
     $[1] = t2;
   } else {
     t2 = $[1];
@@ -75,7 +77,7 @@ export function RateLimitMessage(t0) {
   const isMax20x = rateLimitTier === "default_claude_max_20x";
   let t3;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = shouldProcessMockLimits() || isClaudeAISubscriber();
+    t3 = !isOpenAIResponsesBackendEnabled() && (shouldProcessMockLimits() || isClaudeAISubscriber());
     $[2] = t3;
   } else {
     t3 = $[2];

@@ -1,6 +1,7 @@
 import figures from 'figures';
 import { homedir } from 'os';
 import * as React from 'react';
+import { BRAND_ACCENT_COLOR, BRAND_NAME, GUEST_PASSES_TITLE, QUICKSTART_TITLE, RECENT_ACTIVITY_EMPTY, RECENT_ACTIVITY_TITLE, WHATS_NEW_TITLE } from '../../constants/brand.js';
 import { Box, Text } from '../../ink.js';
 import type { Step } from '../../projectOnboardingState.js';
 import { formatCreditAmount, getCachedReferrerReward } from '../../services/api/referral.js';
@@ -18,10 +19,10 @@ export function createRecentActivityFeed(activities: LogOption[]): FeedConfig {
     };
   });
   return {
-    title: 'Recent activity',
+    title: RECENT_ACTIVITY_TITLE,
     lines,
     footer: lines.length > 0 ? '/resume for more' : undefined,
-    emptyMessage: 'No recent activity'
+    emptyMessage: RECENT_ACTIVITY_EMPTY
   };
 }
 export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
@@ -39,9 +40,9 @@ export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
       text: note
     };
   });
-  const emptyMessage = "external" === 'ant' ? 'Unable to fetch latest claude-cli-internal commits' : 'Check the Claude Code changelog for updates';
+  const emptyMessage = "external" === 'ant' ? 'Unable to fetch latest claude-cli-internal commits' : `Check the ${BRAND_NAME} changelog for updates`;
   return {
-    title: "external" === 'ant' ? "What's new [ANT-ONLY: Latest CC commits]" : "What's new",
+    title: "external" === 'ant' ? `${WHATS_NEW_TITLE} [ANT-ONLY: Latest CC commits]` : WHATS_NEW_TITLE,
     lines,
     footer: lines.length > 0 ? '/release-notes for more' : undefined,
     emptyMessage
@@ -60,27 +61,27 @@ export function createProjectOnboardingFeed(steps: Step[]): FeedConfig {
       text: `${checkmark}${text}`
     };
   });
-  const warningText = getCwd() === homedir() ? 'Note: You have launched claude in your home directory. For the best experience, launch it in a project directory instead.' : undefined;
+  const warningText = getCwd() === homedir() ? `Note: You launched ${BRAND_NAME} in your home directory. For the best experience, launch it in a project directory instead.` : undefined;
   if (warningText) {
     lines.push({
       text: warningText
     });
   }
   return {
-    title: 'Tips for getting started',
+    title: QUICKSTART_TITLE,
     lines
   };
 }
 export function createGuestPassesFeed(): FeedConfig {
   const reward = getCachedReferrerReward();
-  const subtitle = reward ? `Share Claude Code and earn ${formatCreditAmount(reward)} of extra usage` : 'Share Claude Code with friends';
+  const subtitle = reward ? `Share ${BRAND_NAME} and earn ${formatCreditAmount(reward)} of extra usage` : `Share ${BRAND_NAME} with friends`;
   return {
-    title: '3 guest passes',
+    title: GUEST_PASSES_TITLE,
     lines: [],
     customContent: {
       content: <>
           <Box marginY={1}>
-            <Text color="claude">[✻] [✻] [✻]</Text>
+            <Text color={BRAND_ACCENT_COLOR}>[◫] [◫] [◫]</Text>
           </Box>
           <Text dimColor>{subtitle}</Text>
         </>,

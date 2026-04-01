@@ -1,4 +1,5 @@
 import { getDirectConnectServerUrl, getSessionId } from '../bootstrap/state.js'
+import { formatBrandWelcome } from '../constants/brand.js'
 import { stringWidth } from '../ink/stringWidth.js'
 import type { LogOption } from '../types/logs.js'
 import { getSubscriptionName, isClaudeAISubscriber } from './auth.js'
@@ -9,6 +10,10 @@ import {
   truncateToWidth,
   truncateToWidthNoEllipsis,
 } from './format.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  loadCodexProviderConfig,
+} from '../services/modelBackend/openaiCodexConfig.js'
 import { getStoredChangelogFromMemory, parseChangelog } from './releaseNotes.js'
 import { gt } from './semver.js'
 import { loadMessageLogs } from './sessionStorage.js'
@@ -95,10 +100,7 @@ export function calculateOptimalLeftWidth(
  * Formats the welcome message based on username
  */
 export function formatWelcomeMessage(username: string | null): string {
-  if (!username || username.length > MAX_USERNAME_LENGTH) {
-    return 'Welcome back!'
-  }
-  return `Welcome back ${username}!`
+  return formatBrandWelcome(username, MAX_USERNAME_LENGTH)
 }
 
 /**
@@ -253,9 +255,13 @@ export function getLogoDisplayData(): {
   const cwd = serverUrl
     ? `${displayPath} in ${serverUrl.replace(/^https?:\/\//, '')}`
     : displayPath
-  const billingType = isClaudeAISubscriber()
-    ? getSubscriptionName()
-    : 'API Usage Billing'
+  const billingType = isOpenAIResponsesBackendEnabled()
+    ? loadCodexProviderConfig().providerId === 'openai'
+      ? 'OpenAI/Codex API'
+      : `${loadCodexProviderConfig().providerId} Responses API`
+    : isClaudeAISubscriber()
+      ? getSubscriptionName()
+      : 'API Usage Billing'
   const agentName = getInitialSettings().agent
 
   return {

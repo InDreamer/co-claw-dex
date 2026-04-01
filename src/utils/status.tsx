@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import figures from 'figures';
 import * as React from 'react';
 import { color, Text } from '../ink.js';
+import { loadCodexAuthConfig, loadCodexProviderConfig, resolveOpenAIBaseUrl, resolveOpenAIModel, isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js';
 import type { MCPServerConnection } from '../services/mcp/types.js';
 import { getAccountInformation, isClaudeAISubscriber } from './auth.js';
 import { getLargeMemoryFiles, getMemoryFiles, MAX_MEMORY_CHARACTER_COUNT } from './claudemd.js';
@@ -198,6 +199,25 @@ export async function buildInstallationHealthDiagnostics(): Promise<Diagnostic[]
   return items;
 }
 export function buildAccountProperties(): Property[] {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const auth = loadCodexAuthConfig()
+    const apiKeySource = process.env.OPENAI_API_KEY?.trim()
+      ? 'OPENAI_API_KEY'
+      : auth.openaiApiKey
+        ? '~/.codex/auth.json'
+        : 'not configured'
+    return [
+      {
+        label: 'Login method',
+        value: 'OpenAI/Codex API key',
+      },
+      {
+        label: 'API key',
+        value: apiKeySource,
+      },
+    ]
+  }
+
   const accountInfo = getAccountInformation();
   if (!accountInfo) {
     return [];
@@ -238,6 +258,28 @@ export function buildAccountProperties(): Property[] {
   return properties;
 }
 export function buildAPIProviderProperties(): Property[] {
+  if (isOpenAIResponsesBackendEnabled()) {
+    const provider = loadCodexProviderConfig()
+    return [
+      {
+        label: 'API provider',
+        value: `OpenAI/Codex Responses (${provider.providerId})`,
+      },
+      {
+        label: 'Base URL',
+        value: resolveOpenAIBaseUrl(),
+      },
+      {
+        label: 'Model',
+        value: resolveOpenAIModel(undefined),
+      },
+      {
+        label: 'Wire API',
+        value: provider.wireApi,
+      },
+    ]
+  }
+
   const apiProvider = getAPIProvider();
   const properties: Property[] = [];
   if (apiProvider !== 'firstParty') {
@@ -352,6 +394,10 @@ export function buildAPIProviderProperties(): Property[] {
   return properties;
 }
 export function getModelDisplayLabel(mainLoopModel: string | null): string {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return resolveOpenAIModel(mainLoopModel ?? undefined)
+  }
+
   let modelLabel = modelDisplayString(mainLoopModel);
   if (mainLoopModel === null && isClaudeAISubscriber()) {
     const description = getClaudeAiUserDefaultModelDescription();

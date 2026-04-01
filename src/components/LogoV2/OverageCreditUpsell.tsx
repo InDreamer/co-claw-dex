@@ -1,9 +1,11 @@
 import { c as _c } from "react/compiler-runtime";
 import * as React from 'react';
 import { useState } from 'react';
+import { BRAND_ACCENT_COLOR } from '../../constants/brand.js';
 import { Text } from '../../ink.js';
 import { logEvent } from '../../services/analytics/index.js';
 import { formatGrantAmount, getCachedOverageCreditGrant, refreshOverageCreditGrantCache } from '../../services/api/overageCreditGrant.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { truncate } from '../../utils/format.js';
 import type { FeedConfig } from './Feed.js';
@@ -25,6 +27,7 @@ const MAX_IMPRESSIONS = 3;
  *   (welcome feed, tips).
  */
 export function isEligibleForOverageCreditGrant(): boolean {
+  if (isOpenAIResponsesBackendEnabled()) return false;
   const info = getCachedOverageCreditGrant();
   if (!info || !info.available || info.granted) return false;
   return formatGrantAmount(info) !== null;
@@ -42,6 +45,7 @@ export function shouldShowOverageCreditUpsell(): boolean {
  * unconditionally on mount — it no-ops if cache is fresh.
  */
 export function maybeRefreshOverageCreditCache(): void {
+  if (isOpenAIResponsesBackendEnabled()) return;
   if (getCachedOverageCreditGrant() !== null) return;
   void refreshOverageCreditGrantCache();
 }
@@ -121,13 +125,13 @@ export function OverageCreditUpsell(t0) {
         } else {
           t4 = $[7];
         }
-        t2 = <><Text color="claude">{maxWidth ? truncate(title, maxWidth) : title}</Text>{t4}</>;
+        t2 = <><Text color={BRAND_ACCENT_COLOR}>{maxWidth ? truncate(title, maxWidth) : title}</Text>{t4}</>;
         break bb0;
       }
       const text = getUsageText(amount);
       const display = maxWidth ? truncate(text, maxWidth) : text;
       const highlightLen = Math.min(getFeedTitle(amount).length, display.length);
-      t1 = <Text dimColor={true}><Text color="claude">{display.slice(0, highlightLen)}</Text>{display.slice(highlightLen)}</Text>;
+      t1 = <Text dimColor={true}><Text color={BRAND_ACCENT_COLOR}>{display.slice(0, highlightLen)}</Text>{display.slice(highlightLen)}</Text>;
     }
     $[0] = maxWidth;
     $[1] = twoLine;

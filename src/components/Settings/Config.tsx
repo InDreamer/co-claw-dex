@@ -16,6 +16,7 @@ import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoM
 import { logError } from '../../utils/log.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { isBridgeEnabled } from '../../bridge/bridgeEnabled.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { ThemePicker } from '../ThemePicker.js';
 import { useAppState, useSetAppState, useAppStateStore } from '../../state/AppState.js';
 import { ModelPicker } from '../ModelPicker.js';
@@ -871,7 +872,7 @@ export function Config({
         source: 'config_panel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  }] : []), {
+  }] : []), ...(!isOpenAIResponsesBackendEnabled() ? [{
     id: 'claudeInChromeDefaultEnabled',
     label: 'Claude in Chrome enabled by default',
     value: globalConfig.claudeInChromeDefaultEnabled ?? true,
@@ -889,7 +890,7 @@ export function Config({
         enabled: enabled_5
       });
     }
-  },
+  }] : []),
   // Teammate mode (only shown when agent swarms are enabled)
   ...(isAgentSwarmsEnabled() ? (() => {
     const cliOverride = getCliTeammateModeOverride();
@@ -927,7 +928,7 @@ export function Config({
     }];
   })() : []),
   // Remote at startup toggle — gated on build flag + GrowthBook + policy
-  ...(feature('BRIDGE_MODE') && isBridgeEnabled() ? [{
+  ...(!isOpenAIResponsesBackendEnabled() && feature('BRIDGE_MODE') && isBridgeEnabled() ? [{
     id: 'remoteControlAtStartup',
     label: 'Enable Remote Control for all sessions',
     value: globalConfig.remoteControlAtStartup === undefined ? 'default' : String(globalConfig.remoteControlAtStartup),

@@ -1,5 +1,6 @@
 import { c as _c } from "react/compiler-runtime";
 import * as React from 'react';
+import { BRAND_ACCENT_COLOR } from '../../constants/brand.js';
 import { stringWidth } from '../../ink/stringWidth.js';
 import { Box, Text } from '../../ink.js';
 import { truncate } from '../../utils/format.js';
@@ -72,7 +73,7 @@ export function Feed(t0) {
   const maxTimestampWidth = t1;
   let t2;
   if ($[2] !== title) {
-    t2 = <Text bold={true} color="claude">{title}</Text>;
+    t2 = <Text bold={true} color={BRAND_ACCENT_COLOR}>{title}</Text>;
     $[2] = title;
     $[3] = t2;
   } else {

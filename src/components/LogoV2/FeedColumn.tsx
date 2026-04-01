@@ -1,5 +1,6 @@
 import { c as _c } from "react/compiler-runtime";
 import * as React from 'react';
+import { BRAND_ACCENT_COLOR } from '../../constants/brand.js';
 import { Box } from '../../ink.js';
 import { Divider } from '../design-system/Divider.js';
 import type { FeedConfig } from './Feed.js';
@@ -29,7 +30,7 @@ export function FeedColumn(t0) {
   if ($[2] !== actualWidth || $[3] !== feeds) {
     let t3;
     if ($[5] !== actualWidth || $[6] !== feeds.length) {
-      t3 = (feed_0, index) => <React.Fragment key={index}><Feed config={feed_0} actualWidth={actualWidth} />{index < feeds.length - 1 && <Divider color="claude" width={actualWidth} />}</React.Fragment>;
+      t3 = (feed_0, index) => <React.Fragment key={index}><Feed config={feed_0} actualWidth={actualWidth} />{index < feeds.length - 1 && <Divider color={BRAND_ACCENT_COLOR} width={actualWidth} />}</React.Fragment>;
       $[5] = actualWidth;
       $[6] = feeds.length;
       $[7] = t3;

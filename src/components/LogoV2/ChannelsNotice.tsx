@@ -12,6 +12,7 @@ import { Box, Text } from '../../ink.js';
 import { isChannelsEnabled } from '../../services/mcp/channelAllowlist.js';
 import { getEffectiveChannelAllowlist } from '../../services/mcp/channelNotification.js';
 import { getMcpConfigsByScope } from '../../services/mcp/config.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { getClaudeAIOAuthTokens, getSubscriptionType } from '../../utils/auth.js';
 import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsManager.js';
 import { getSettingsForSource } from '../../utils/settings/settings.js';
@@ -24,7 +25,8 @@ export function ChannelsNotice() {
     noAuth,
     policyBlocked,
     list,
-    unmatched
+    unmatched,
+    disabledReason
   } = t0;
   if (channels.length === 0) {
     return null;
@@ -41,22 +43,7 @@ export function ChannelsNotice() {
     } else {
       t1 = $[2];
     }
-    let t2;
-    if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-      t2 = <Text dimColor={true}>Channels are not currently available</Text>;
-      $[3] = t2;
-    } else {
-      t2 = $[3];
-    }
-    let t3;
-    if ($[4] !== t1) {
-      t3 = <Box paddingLeft={2} flexDirection="column">{t1}{t2}</Box>;
-      $[4] = t1;
-      $[5] = t3;
-    } else {
-      t3 = $[5];
-    }
-    return t3;
+    return <Box paddingLeft={2} flexDirection="column">{t1}<Text dimColor={true}>{disabledReason}</Text></Box>;
   }
   if (noAuth) {
     let t1;
@@ -135,7 +122,7 @@ export function ChannelsNotice() {
   }
   let t2;
   if ($[24] !== flag) {
-    t2 = <Text dimColor={true}>Experimental · inbound messages will be pushed into this session, this carries prompt injection risks. Restart Claude Code without {flag} to disable.</Text>;
+    t2 = <Text dimColor={true}>Experimental · inbound messages will be pushed into this session, this carries prompt injection risks. Restart GPT Codex without {flag} to disable.</Text>;
     $[24] = flag;
     $[25] = t2;
   } else {
@@ -179,9 +166,11 @@ function _temp() {
       noAuth: false,
       policyBlocked: false,
       list: "",
-      unmatched: [] as Unmatched[]
+      unmatched: [] as Unmatched[],
+      disabledReason: 'Channels are not currently available'
     };
   }
+  const isOpenAIBackend = isOpenAIResponsesBackendEnabled();
   const l = ch.map(formatEntry).join(", ");
   const sub = getSubscriptionType();
   const managed = sub === "team" || sub === "enterprise";
@@ -189,11 +178,12 @@ function _temp() {
   const allowlist = getEffectiveChannelAllowlist(sub, policy?.allowedChannelPlugins);
   return {
     channels: ch,
-    disabled: !isChannelsEnabled(),
-    noAuth: !getClaudeAIOAuthTokens()?.accessToken,
-    policyBlocked: managed && policy?.channelsEnabled !== true,
+    disabled: isOpenAIBackend || !isChannelsEnabled(),
+    noAuth: !isOpenAIBackend && !getClaudeAIOAuthTokens()?.accessToken,
+    policyBlocked: !isOpenAIBackend && managed && policy?.channelsEnabled !== true,
     list: l,
-    unmatched: findUnmatched(ch, allowlist)
+    unmatched: findUnmatched(ch, allowlist),
+    disabledReason: isOpenAIBackend ? 'Channels are unavailable on the OpenAI/Codex backend' : 'Channels are not currently available'
   };
 }
 function formatEntry(c: ChannelEntry): string {
