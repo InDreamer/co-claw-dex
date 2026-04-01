@@ -1,8 +1,19 @@
-# Claude Code Codex/OpenAI Fork
+# co-claw-dex
 
-This workspace is a locally runnable Claude Code source fork that has been adapted to use an OpenAI-compatible Responses backend as its primary coding model runtime.
+`co-claw-dex` is a locally runnable Claude Code-style coding agent fork that swaps the original model provider boundary for an OpenAI/Codex-compatible Responses backend.
 
-The goal of this fork is not to redesign the CLI. The goal is to preserve the existing terminal UX, tool system, permission model, and agent flow while replacing the model provider boundary with a Codex/OpenAI-compatible backend.
+The goal is not to redesign the CLI. The goal is to preserve the terminal UX, tool system, permission model, and agent flow while replacing the model runtime with an OpenAI-compatible backend.
+
+## Highlights
+
+- Preserves the Claude Code-style terminal experience instead of rebuilding the agent stack from scratch
+- Uses an OpenAI/Codex-compatible Responses backend as the default model runtime
+- Reuses Codex-style local auth and config sources such as `OPENAI_API_KEY`, `~/.codex/auth.json`, and `~/.codex/config.toml`
+- Translates Responses streaming events back into the existing internal stream format so the CLI behavior stays familiar
+- Translates function calling into the existing tool-use flow, including stateless replay for providers that do not reliably support `previous_response_id`
+- Keeps legacy Claude-style model aliases for compatibility with existing workflows
+- Disables Anthropic-specific self-update, install, telemetry, GrowthBook, and preconnect paths in this fork
+- Ships with source-first helper scripts for build, smoke testing, local activation, and rollback
 
 ## Status
 

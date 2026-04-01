@@ -11,9 +11,13 @@
   "author": "Anthropic <support@anthropic.com>",
   "license": "SEE LICENSE IN README.md",
   "description": "A Claude Code-style terminal coding agent platform wired to an OpenAI/Codex-compatible Responses backend.",
-  "homepage": "https://github.com/anthropics/claude-code",
+  "homepage": "https://github.com/InDreamer/co-claw-dex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/InDreamer/co-claw-dex.git"
+  },
   "bugs": {
-    "url": "https://github.com/anthropics/claude-code/issues"
+    "url": "https://github.com/InDreamer/co-claw-dex/issues"
   },
   "scripts": {
     "activate-cli": "bash scripts/activate-local-cli.sh",
