@@ -333,7 +333,14 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
 
     if (tools?.length) {
       request.tools = tools.map(mapToolToOpenAIFunction)
-      request.tool_choice = tool_choice?.type === 'tool' ? 'required' : 'auto'
+      if (tool_choice?.type === 'tool') {
+        request.tool_choice = {
+          type: 'function',
+          name: tool_choice.name,
+        }
+      } else {
+        request.tool_choice = 'auto'
+      }
       request.parallel_tool_calls = true
     }
 

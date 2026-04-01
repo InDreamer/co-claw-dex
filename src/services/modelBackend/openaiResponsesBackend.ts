@@ -268,8 +268,14 @@ async function createResponsesRequest(params: StreamTurnParams): Promise<{
 
   if (serializedTools.length > 0) {
     request.tools = serializedTools
-    request.tool_choice =
-      params.options.toolChoice?.type === 'tool' ? 'required' : 'auto'
+    if (params.options.toolChoice?.type === 'tool') {
+      request.tool_choice = {
+        type: 'function',
+        name: params.options.toolChoice.name,
+      }
+    } else {
+      request.tool_choice = 'auto'
+    }
     request.parallel_tool_calls = true
   }
 
