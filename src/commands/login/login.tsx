@@ -1,6 +1,7 @@
 import { c as _c } from "react/compiler-runtime";
 import { feature } from 'bun:bundle';
 import * as React from 'react';
+import { BRAND_NAME } from '../../constants/brand.js';
 import { resetCostState } from '../../bootstrap/state.js';
 import { clearTrustedDeviceToken, enrollTrustedDevice } from '../../bridge/trustedDevice.js';
 import type { LocalJSXCommandContext } from '../../commands.js';
@@ -8,8 +9,10 @@ import { ConfigurableShortcutHint } from '../../components/ConfigurableShortcutH
 import { ConsoleOAuthFlow } from '../../components/ConsoleOAuthFlow.js';
 import { Dialog } from '../../components/design-system/Dialog.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
+import { Box } from '../../ink.js';
 import { Text } from '../../ink.js';
 import { refreshGrowthBookAfterAuthChange } from '../../services/analytics/growthbook.js';
+import { getOpenAIApiKey, isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { refreshPolicyLimits } from '../../services/policyLimits/index.js';
 import { refreshRemoteManagedSettings } from '../../services/remoteManagedSettings/index.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
@@ -17,6 +20,9 @@ import { stripSignatureBlocks } from '../../utils/messages.js';
 import { checkAndDisableAutoModeIfNeeded, checkAndDisableBypassPermissionsIfNeeded, resetAutoModeGateCheck, resetBypassPermissionsCheck } from '../../utils/permissions/bypassPermissionsKillswitch.js';
 import { resetUserCache } from '../../utils/user.js';
 export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return <OpenAILoginNotice onDone={() => onDone('OpenAI/Codex credentials checked')} />;
+  }
   return <Login onDone={async success => {
     context.onChangeAPIKey();
     // Signature-bearing blocks (thinking, connector_text) are bound to the API key —
@@ -97,6 +103,29 @@ export function Login(props) {
     t3 = $[11];
   }
   return t3;
+}
+
+function OpenAILoginNotice({
+  onDone,
+}: {
+  onDone: () => void
+}): React.ReactNode {
+  const hasKey = Boolean(getOpenAIApiKey())
+  return <Dialog title="Login" onCancel={onDone} color="permission" inputGuide={_temp}>
+      <Box flexDirection="column" gap={1}>
+        <Text>
+          {BRAND_NAME} is using the OpenAI/Codex Responses backend.
+        </Text>
+        {hasKey ? <Text color="success">
+            Credentials are already configured. No browser login is required.
+          </Text> : <Text color="warning">
+            No OpenAI/Codex API key is configured. Set <Text bold>OPENAI_API_KEY</Text> or add it to <Text bold>~/.codex/auth.json</Text>.
+          </Text>}
+        <Text dimColor>
+          Press Esc to close. Use <Text bold>claude auth status</Text> for full credential details.
+        </Text>
+      </Box>
+    </Dialog>;
 }
 function _temp(exitState) {
   return exitState.pending ? <Text>Press {exitState.keyName} again to exit</Text> : <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />;

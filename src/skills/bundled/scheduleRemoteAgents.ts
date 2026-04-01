@@ -1,5 +1,6 @@
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import type { MCPServerConnection } from '../../services/mcp/types.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
 import { isPolicyAllowed } from '../../services/policyLimits/index.js'
 import type { ToolUseContext } from '../../Tool.js'
 import { ASK_USER_QUESTION_TOOL_NAME } from '../../tools/AskUserQuestionTool/prompt.js'
@@ -330,6 +331,7 @@ export function registerScheduleRemoteAgentsSkill(): void {
       'When the user wants to schedule a recurring remote agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/triggers.',
     userInvocable: true,
     isEnabled: () =>
+      !isOpenAIResponsesBackendEnabled() &&
       getFeatureValue_CACHED_MAY_BE_STALE('tengu_surreal_dali', false) &&
       isPolicyAllowed('allow_remote_sessions'),
     allowedTools: [REMOTE_TRIGGER_TOOL_NAME, ASK_USER_QUESTION_TOOL_NAME],

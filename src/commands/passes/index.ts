@@ -3,6 +3,7 @@ import {
   checkCachedPassesEligibility,
   getCachedReferrerReward,
 } from '../../services/api/referral.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
 
 export default {
   type: 'local-jsx',
@@ -14,7 +15,11 @@ export default {
     }
     return 'Share a free week of Claude Code with friends'
   },
+  isEnabled: () => !isOpenAIResponsesBackendEnabled(),
   get isHidden() {
+    if (isOpenAIResponsesBackendEnabled()) {
+      return true
+    }
     const { eligible, hasCache } = checkCachedPassesEligibility()
     return !eligible || !hasCache
   },

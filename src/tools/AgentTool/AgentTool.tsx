@@ -193,6 +193,12 @@ import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 // AgentTool forwards both its own progress events and shell progress
 // events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
 export type Progress = AgentToolProgress | ShellProgress;
+
+function normalizeOptionalAgentString(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
 export const AgentTool = buildTool({
   async prompt({
     agents,
@@ -250,6 +256,10 @@ export const AgentTool = buildTool({
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
     const model = isCoordinatorMode() ? undefined : modelParam;
+    const normalizedSubagentType = normalizeOptionalAgentString(subagent_type);
+    const normalizedName = normalizeOptionalAgentString(name);
+    const normalizedTeamName = normalizeOptionalAgentString(team_name);
+    const normalizedCwd = normalizeOptionalAgentString(cwd);
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
@@ -259,7 +269,7 @@ export const AgentTool = buildTool({
     const rootSetAppState = toolUseContext.setAppStateForTasks ?? toolUseContext.setAppState;
 
     // Check if user is trying to use agent teams without access
-    if (team_name && !isAgentSwarmsEnabled()) {
+    if (normalizedTeamName && !isAgentSwarmsEnabled()) {
       throw new Error('Agent Teams is not yet available on your plan.');
     }
 
@@ -267,9 +277,9 @@ export const AgentTool = buildTool({
     // below, but TeamFile.members is a flat array with one leadAgentId — nested
     // teammates land in the roster with no provenance and confuse the lead.
     const teamName = resolveTeamName({
-      team_name
+      team_name: normalizedTeamName
     }, appState);
-    if (isTeammate() && teamName && name) {
+    if (isTeammate() && teamName && normalizedName) {
       throw new Error('Teammates cannot spawn other teammates — the team roster is flat. To spawn a subagent instead, omit the `name` parameter.');
     }
     // In-process teammates cannot spawn background agents (their lifecycle is
@@ -281,21 +291,21 @@ export const AgentTool = buildTool({
 
     // Check if this is a multi-agent spawn request
     // Spawn is triggered when team_name is set (from param or context) and name is provided
-    if (teamName && name) {
+    if (teamName && normalizedName) {
       // Set agent definition color for grouped UI display before spawning
-      const agentDef = subagent_type ? toolUseContext.options.agentDefinitions.activeAgents.find(a => a.agentType === subagent_type) : undefined;
+      const agentDef = normalizedSubagentType ? toolUseContext.options.agentDefinitions.activeAgents.find(a => a.agentType === normalizedSubagentType) : undefined;
       if (agentDef?.color) {
-        setAgentColor(subagent_type!, agentDef.color);
+        setAgentColor(normalizedSubagentType!, agentDef.color);
       }
       const result = await spawnTeammate({
-        name,
+        name: normalizedName,
         prompt,
         description,
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
         model: model ?? agentDef?.model,
-        agent_type: subagent_type,
+        agent_type: normalizedSubagentType,
         invokingRequestId: assistantMessage?.requestId
       }, toolUseContext);
 
@@ -319,7 +329,7 @@ export const AgentTool = buildTool({
     // - subagent_type set: use it (explicit wins)
     // - subagent_type omitted, gate on: fork path (undefined)
     // - subagent_type omitted, gate off: default general-purpose
-    const effectiveType = subagent_type ?? (isForkSubagentEnabled() ? undefined : GENERAL_PURPOSE_AGENT.agentType);
+    const effectiveType = normalizedSubagentType ?? (isForkSubagentEnabled() ? undefined : GENERAL_PURPOSE_AGENT.agentType);
     const isForkPath = effectiveType === undefined;
     let selectedAgent: AgentDefinition;
     if (isForkPath) {
@@ -621,7 +631,7 @@ export const AgentTool = buildTool({
       // returns the override path.
       override: isForkPath ? {
         systemPrompt: forkParentSystemPrompt
-      } : enhancedSystemPrompt && !worktreeInfo && !cwd ? {
+      } : enhancedSystemPrompt && !worktreeInfo && !normalizedCwd ? {
         systemPrompt: asSystemPrompt(enhancedSystemPrompt)
       } : undefined,
       availableTools: isForkPath ? toolUseContext.options.tools : workerTools,
@@ -637,7 +647,7 @@ export const AgentTool = buildTool({
 
     // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
     // takes precedence over worktree isolation path.
-    const cwdOverridePath = cwd ?? worktreeInfo?.worktreePath;
+    const cwdOverridePath = normalizedCwd ?? worktreeInfo?.worktreePath;
     const wrapWithCwd = <T,>(fn: () => T): T => cwdOverridePath ? runWithCwdOverride(cwdOverridePath, fn) : fn();
 
     // Helper to clean up worktree after agent completes
@@ -700,10 +710,10 @@ export const AgentTool = buildTool({
       // Register name → agentId for SendMessage routing. Post-registerAsyncAgent
       // so we don't leave a stale entry if spawn fails. Sync agents skipped —
       // coordinator is blocked, so SendMessage routing doesn't apply.
-      if (name) {
+      if (normalizedName) {
         rootSetAppState(prev => {
           const next = new Map(prev.agentNameRegistry);
-          next.set(name, asAgentId(asyncAgentId));
+          next.set(normalizedName, asAgentId(asyncAgentId));
           return {
             ...prev,
             agentNameRegistry: next

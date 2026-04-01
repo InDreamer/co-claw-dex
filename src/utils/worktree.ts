@@ -8,7 +8,9 @@ import {
   readFile,
   stat,
   symlink,
+  unlink,
   utimes,
+  writeFile,
 } from 'fs/promises'
 import ignore from 'ignore'
 import { basename, dirname, join } from 'path'
@@ -17,6 +19,7 @@ import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { errorMessage, getErrnoCode } from './errors.js'
 import { execFileNoThrow, execFileNoThrowWithCwd } from './execFileNoThrow.js'
+import { isProcessRunning } from './genericProcessUtils.js'
 import { parseGitConfigValue } from './git/gitConfigParser.js'
 import {
   getCommonDir,
@@ -200,9 +203,195 @@ const GIT_NO_PROMPT_ENV = {
   GIT_TERMINAL_PROMPT: '0',
   GIT_ASKPASS: '',
 }
+const WORKTREE_CREATION_LOCK_FILENAME = '.creation.lock'
+const WORKTREE_CREATION_LOCK_POLL_MS = 50
+const WORKTREE_CREATION_LOCK_STALE_MS = 5 * 60_000
+const WORKTREE_ADD_RETRY_DELAYS_MS = [75, 150, 300]
+
+type WorktreeCreationLock = {
+  ownerId: string
+  pid: number
+  acquiredAt: number
+}
 
 function worktreesDir(repoRoot: string): string {
   return join(repoRoot, '.claude', 'worktrees')
+}
+
+function worktreeCreationLockPath(repoRoot: string): string {
+  return join(worktreesDir(repoRoot), WORKTREE_CREATION_LOCK_FILENAME)
+}
+
+function isWorktreeCreationLock(value: unknown): value is WorktreeCreationLock {
+  if (typeof value !== 'object' || value === null) return false
+  return (
+    'ownerId' in value &&
+    typeof value.ownerId === 'string' &&
+    'pid' in value &&
+    typeof value.pid === 'number' &&
+    'acquiredAt' in value &&
+    typeof value.acquiredAt === 'number'
+  )
+}
+
+async function readWorktreeCreationLock(
+  repoRoot: string,
+): Promise<WorktreeCreationLock | undefined> {
+  try {
+    const raw = await readFile(worktreeCreationLockPath(repoRoot), 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    return isWorktreeCreationLock(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function tryCreateWorktreeCreationLock(
+  repoRoot: string,
+  lock: WorktreeCreationLock,
+): Promise<boolean> {
+  const path = worktreeCreationLockPath(repoRoot)
+  const body = JSON.stringify(lock)
+  try {
+    await writeFile(path, body, { flag: 'wx' })
+    return true
+  } catch (error) {
+    const code = getErrnoCode(error)
+    if (code === 'EEXIST') return false
+    if (code === 'ENOENT') {
+      await mkdir(worktreesDir(repoRoot), { recursive: true })
+      try {
+        await writeFile(path, body, { flag: 'wx' })
+        return true
+      } catch (retryError) {
+        if (getErrnoCode(retryError) === 'EEXIST') return false
+        throw retryError
+      }
+    }
+    throw error
+  }
+}
+
+function isWorktreeCreationLockStale(lock: WorktreeCreationLock): boolean {
+  return (
+    Date.now() - lock.acquiredAt > WORKTREE_CREATION_LOCK_STALE_MS ||
+    !isProcessRunning(lock.pid)
+  )
+}
+
+function isSameWorktreeCreationLock(
+  left: WorktreeCreationLock,
+  right: WorktreeCreationLock,
+): boolean {
+  return (
+    left.ownerId === right.ownerId &&
+    left.pid === right.pid &&
+    left.acquiredAt === right.acquiredAt
+  )
+}
+
+async function releaseWorktreeCreationLock(
+  repoRoot: string,
+  ownerId: string,
+): Promise<void> {
+  const existing = await readWorktreeCreationLock(repoRoot)
+  if (!existing || existing.ownerId !== ownerId) return
+  await unlink(worktreeCreationLockPath(repoRoot)).catch(() => {})
+}
+
+async function acquireWorktreeCreationLock(
+  repoRoot: string,
+): Promise<() => Promise<void>> {
+  const lock: WorktreeCreationLock = {
+    ownerId: `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    pid: process.pid,
+    acquiredAt: Date.now(),
+  }
+  let lastBlockedBy: string | undefined
+
+  while (true) {
+    if (await tryCreateWorktreeCreationLock(repoRoot, lock)) {
+      return async () => releaseWorktreeCreationLock(repoRoot, lock.ownerId)
+    }
+
+    const existing = await readWorktreeCreationLock(repoRoot)
+    if (!existing) {
+      const lockStats = await stat(worktreeCreationLockPath(repoRoot)).catch(
+        () => undefined,
+      )
+      if (
+        lockStats &&
+        Date.now() - lockStats.mtimeMs > WORKTREE_CREATION_LOCK_STALE_MS
+      ) {
+        logForDebugging(`Recovering unreadable worktree creation lock for ${repoRoot}`)
+        await unlink(worktreeCreationLockPath(repoRoot)).catch(() => {})
+        continue
+      }
+      await sleep(WORKTREE_CREATION_LOCK_POLL_MS)
+      continue
+    }
+
+    if (isWorktreeCreationLockStale(existing)) {
+      const current = await readWorktreeCreationLock(repoRoot)
+      if (
+        current &&
+        isSameWorktreeCreationLock(current, existing) &&
+        isWorktreeCreationLockStale(current)
+      ) {
+        logForDebugging(
+          `Recovering stale worktree creation lock for ${repoRoot} held by PID ${current.pid}`,
+        )
+        await unlink(worktreeCreationLockPath(repoRoot)).catch(() => {})
+        continue
+      }
+    } else {
+      const blockedBy = `${existing.pid}:${existing.ownerId}`
+      if (lastBlockedBy !== blockedBy) {
+        lastBlockedBy = blockedBy
+        logForDebugging(
+          `Waiting for worktree creation lock in ${repoRoot} held by PID ${existing.pid}`,
+        )
+      }
+    }
+
+    await sleep(WORKTREE_CREATION_LOCK_POLL_MS)
+  }
+}
+
+function isTransientWorktreeAddLockError(stderr: string): boolean {
+  const normalized = stderr.toLowerCase()
+  return (
+    normalized.includes('could not lock config file .git/config') ||
+    (normalized.includes('unable to write upstream branch configuration') &&
+      normalized.includes('preparing worktree'))
+  )
+}
+
+async function runGitWorktreeAddWithRetry(
+  repoRoot: string,
+  addArgs: string[],
+): Promise<Awaited<ReturnType<typeof execFileNoThrowWithCwd>>> {
+  const gitEnv = { ...process.env, ...GIT_NO_PROMPT_ENV }
+  let result = await execFileNoThrowWithCwd(gitExe(), addArgs, {
+    cwd: repoRoot,
+    stdin: 'ignore',
+    env: gitEnv,
+  })
+  for (const delayMs of WORKTREE_ADD_RETRY_DELAYS_MS) {
+    if (result.code === 0 || !isTransientWorktreeAddLockError(result.stderr)) {
+      return result
+    }
+    logForDebugging(
+      `git worktree add hit a transient config lock, retrying in ${delayMs}ms`,
+    )
+    await sleep(delayMs)
+    result = await execFileNoThrowWithCwd(gitExe(), addArgs, {
+      cwd: repoRoot,
+      stdin: 'ignore',
+      env: gitEnv,
+    })
+  }
+  return result
 }
 
 // Flatten nested slugs (`user/feature` → `user+feature`) for both the branch
@@ -326,11 +515,25 @@ async function getOrCreateWorktree(
   // -B (not -b): reset any orphan branch left behind by a removed worktree dir.
   // Saves a `git branch -D` subprocess (~15ms spawn overhead) on every create.
   addArgs.push('-B', worktreeBranch, worktreePath, baseBranch)
+  const releaseCreationLock = await acquireWorktreeCreationLock(repoRoot)
+  try {
+    const existingHeadAfterLock = await readWorktreeHeadSha(worktreePath)
+    if (existingHeadAfterLock) {
+      return {
+        worktreePath,
+        worktreeBranch,
+        headCommit: existingHeadAfterLock,
+        existed: true,
+      }
+    }
 
-  const { code: createCode, stderr: createStderr } =
-    await execFileNoThrowWithCwd(gitExe(), addArgs, { cwd: repoRoot })
-  if (createCode !== 0) {
-    throw new Error(`Failed to create worktree: ${createStderr}`)
+    const { code: createCode, stderr: createStderr } =
+      await runGitWorktreeAddWithRetry(repoRoot, addArgs)
+    if (createCode !== 0) {
+      throw new Error(`Failed to create worktree: ${createStderr}`)
+    }
+  } finally {
+    await releaseCreationLock()
   }
 
   if (sparsePaths?.length) {

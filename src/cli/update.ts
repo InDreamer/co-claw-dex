@@ -1,4 +1,9 @@
 import chalk from 'chalk'
+import { BRAND_NAME } from 'src/constants/brand.js'
+import {
+  FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE,
+  IS_FORK_DISTRIBUTION,
+} from 'src/constants/distribution.js'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
   getLatestVersion,
@@ -28,6 +33,16 @@ import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 export async function update() {
+  if (IS_FORK_DISTRIBUTION) {
+    writeToStdout(`${FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE}\n`)
+    writeToStdout(
+      `Run this fork from source and refresh it manually with your normal repo workflow, then rebuild with:\n`,
+    )
+    writeToStdout(chalk.bold('  npm install && npm run build') + '\n')
+    await gracefulShutdown(0)
+    return
+  }
+
   logEvent('tengu_update_check', {})
   writeToStdout(`Current version: ${MACRO.VERSION}\n`)
 
@@ -225,7 +240,7 @@ export async function update() {
           : ''
         writeToStdout(
           chalk.yellow(
-            `Another Claude process${pidInfo} is currently running. Please try again in a moment.`,
+            `Another ${BRAND_NAME} process${pidInfo} is currently running. Please try again in a moment.`,
           ) + '\n',
         )
         await gracefulShutdown(0)
@@ -238,7 +253,7 @@ export async function update() {
 
       if (result.latestVersion === MACRO.VERSION) {
         writeToStdout(
-          chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+          chalk.green(`${BRAND_NAME} is up to date (${MACRO.VERSION})`) + '\n',
         )
       } else {
         writeToStdout(
@@ -308,7 +323,7 @@ export async function update() {
   // Check if versions match exactly, including any build metadata (like SHA)
   if (latestVersion === MACRO.VERSION) {
     writeToStdout(
-      chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+      chalk.green(`${BRAND_NAME} is up to date (${MACRO.VERSION})`) + '\n',
     )
     await gracefulShutdown(0)
   }

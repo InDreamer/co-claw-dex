@@ -1,5 +1,9 @@
 import { feature } from 'bun:bundle'
 import { randomBytes } from 'crypto'
+import {
+  FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE,
+  IS_FORK_DISTRIBUTION,
+} from '../constants/distribution.js'
 import { unwatchFile, watchFile } from 'fs'
 import memoize from 'lodash-es/memoize.js'
 import pickBy from 'lodash-es/pickBy.js'
@@ -1718,6 +1722,7 @@ export type AutoUpdaterDisabledReason =
   | { type: 'development' }
   | { type: 'env'; envVar: string }
   | { type: 'config' }
+  | { type: 'fork' }
 
 export function formatAutoUpdaterDisabledReason(
   reason: AutoUpdaterDisabledReason,
@@ -1729,10 +1734,15 @@ export function formatAutoUpdaterDisabledReason(
       return `${reason.envVar} set`
     case 'config':
       return 'config'
+    case 'fork':
+      return FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE
   }
 }
 
 export function getAutoUpdaterDisabledReason(): AutoUpdaterDisabledReason | null {
+  if (IS_FORK_DISTRIBUTION) {
+    return { type: 'fork' }
+  }
   if (process.env.NODE_ENV === 'development') {
     return { type: 'development' }
   }

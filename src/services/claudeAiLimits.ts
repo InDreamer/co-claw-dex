@@ -2,6 +2,7 @@ import { APIError } from '@anthropic-ai/sdk'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import isEqual from 'lodash-es/isEqual.js'
 import { getIsNonInteractiveSession } from '../bootstrap/state.js'
+import { isOpenAIResponsesBackendEnabled } from './modelBackend/openaiCodexConfig.js'
 import { isClaudeAISubscriber } from '../utils/auth.js'
 import { getModelBetas } from '../utils/betas.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
@@ -218,6 +219,9 @@ async function makeTestQuery() {
 }
 
 export async function checkQuotaStatus(): Promise<void> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return
+  }
   // Skip network requests if nonessential traffic is disabled
   if (isEssentialTrafficOnly()) {
     return

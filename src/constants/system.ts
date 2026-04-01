@@ -1,7 +1,9 @@
 // Critical system constants extracted to break circular dependencies
 
 import { feature } from 'bun:bundle'
+import { BRAND_NAME } from './brand.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
+import { isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js'
 import { logForDebugging } from '../utils/debug.js'
 import { isEnvDefinedFalsy } from '../utils/envUtils.js'
 import { getAPIProvider } from '../utils/model/providers.js'
@@ -10,11 +12,17 @@ import { getWorkload } from '../utils/workloadContext.js'
 const DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
 const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
 const AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+const OPENAI_DEFAULT_PREFIX = `You are ${BRAND_NAME}, a terminal coding agent powered by an OpenAI-compatible Responses API backend.`
+const OPENAI_AGENT_SDK_PRESET_PREFIX = `You are ${BRAND_NAME}, a terminal coding agent running within an OpenAI-compatible agent runtime.`
+const OPENAI_AGENT_SDK_PREFIX = `You are a coding agent running on an OpenAI-compatible Responses API backend.`
 
 const CLI_SYSPROMPT_PREFIX_VALUES = [
   DEFAULT_PREFIX,
   AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX,
   AGENT_SDK_PREFIX,
+  OPENAI_DEFAULT_PREFIX,
+  OPENAI_AGENT_SDK_PRESET_PREFIX,
+  OPENAI_AGENT_SDK_PREFIX,
 ] as const
 
 export type CLISyspromptPrefix = (typeof CLI_SYSPROMPT_PREFIX_VALUES)[number]
@@ -31,6 +39,16 @@ export function getCLISyspromptPrefix(options?: {
   isNonInteractive: boolean
   hasAppendSystemPrompt: boolean
 }): CLISyspromptPrefix {
+  if (isOpenAIResponsesBackendEnabled()) {
+    if (options?.isNonInteractive) {
+      if (options.hasAppendSystemPrompt) {
+        return OPENAI_AGENT_SDK_PRESET_PREFIX
+      }
+      return OPENAI_AGENT_SDK_PREFIX
+    }
+    return OPENAI_DEFAULT_PREFIX
+  }
+
   const apiProvider = getAPIProvider()
   if (apiProvider === 'vertex') {
     return DEFAULT_PREFIX

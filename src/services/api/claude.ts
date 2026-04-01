@@ -144,6 +144,13 @@ import {
 import type { QuerySource } from 'src/constants/querySource.js'
 import type { Notification } from 'src/context/notifications.js'
 import { addToTotalSessionCost } from 'src/cost-tracker.js'
+import {
+  getOpenAIApiKey,
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIBaseUrl,
+  resolveOpenAIModel,
+} from 'src/services/modelBackend/openaiCodexConfig.js'
+import { runOpenAIResponses } from 'src/services/modelBackend/openaiResponsesBackend.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import type { AgentId } from 'src/types/ids.js'
 import {
@@ -536,6 +543,33 @@ export async function verifyApiKey(
     return true
   }
 
+  if (isOpenAIResponsesBackendEnabled()) {
+    try {
+      const response = await fetch(`${resolveOpenAIBaseUrl()}/responses`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: jsonStringify({
+          model: resolveOpenAIModel(undefined),
+          input: [
+            {
+              role: 'user',
+              content: [{ type: 'input_text', text: 'Reply with exactly ok' }],
+            },
+          ],
+          max_output_tokens: 8,
+          store: false,
+        }),
+      })
+      return response.ok
+    } catch (error) {
+      logError(error)
+      throw error
+    }
+  }
+
   try {
     // WARNING: if you change this to use a non-Haiku model, this request will fail in 1P unless it uses getCLISyspromptPrefix.
     const model = getSmallFastModel()
@@ -721,6 +755,29 @@ export async function queryModelWithoutStreaming({
   signal: AbortSignal
   options: Options
 }): Promise<AssistantMessage> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    let assistantMessage: AssistantMessage | undefined
+    for await (const message of runOpenAIResponses({
+      messages,
+      systemPrompt,
+      thinkingConfig,
+      tools,
+      signal,
+      options,
+    })) {
+      if (message.type === 'assistant') {
+        assistantMessage = message
+      }
+    }
+    if (!assistantMessage) {
+      if (signal.aborted) {
+        throw new APIUserAbortError()
+      }
+      throw new Error('No assistant message found')
+    }
+    return assistantMessage
+  }
+
   // Store the assistant message but continue consuming the generator to ensure
   // logAPISuccessAndDuration gets called (which happens after all yields)
   let assistantMessage: AssistantMessage | undefined
@@ -767,6 +824,17 @@ export async function* queryModelWithStreaming({
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return yield* runOpenAIResponses({
+      messages,
+      systemPrompt,
+      thinkingConfig,
+      tools,
+      signal,
+      options,
+    })
+  }
+
   return yield* withStreamingVCR(messages, async function* () {
     yield* queryModel(
       messages,

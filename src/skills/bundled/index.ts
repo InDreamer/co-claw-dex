@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { isOpenAIResponsesBackendEnabled } from 'src/services/modelBackend/openaiCodexConfig.js'
 import { shouldAutoEnableClaudeInChrome } from 'src/utils/claudeInChrome/setup.js'
 import { registerBatchSkill } from './batch.js'
 import { registerClaudeInChromeSkill } from './claudeInChrome.js'
@@ -22,6 +23,8 @@ import { registerVerifySkill } from './verify.js'
  * 3. Import and call that function here
  */
 export function initBundledSkills(): void {
+  const isOpenAIBackend = isOpenAIResponsesBackendEnabled()
+
   registerUpdateConfigSkill()
   registerKeybindingsSkill()
   registerVerifySkill()
@@ -53,7 +56,7 @@ export function initBundledSkills(): void {
     // the skill's own isEnabled callback decides visibility.
     registerLoopSkill()
   }
-  if (feature('AGENT_TRIGGERS_REMOTE')) {
+  if (!isOpenAIBackend && feature('AGENT_TRIGGERS_REMOTE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const {
       registerScheduleRemoteAgentsSkill,
@@ -61,13 +64,13 @@ export function initBundledSkills(): void {
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerScheduleRemoteAgentsSkill()
   }
-  if (feature('BUILDING_CLAUDE_APPS')) {
+  if (!isOpenAIBackend && feature('BUILDING_CLAUDE_APPS')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { registerClaudeApiSkill } = require('./claudeApi.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerClaudeApiSkill()
   }
-  if (shouldAutoEnableClaudeInChrome()) {
+  if (!isOpenAIBackend && shouldAutoEnableClaudeInChrome()) {
     registerClaudeInChromeSkill()
   }
   if (feature('RUN_SKILL_GENERATOR')) {

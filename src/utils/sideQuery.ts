@@ -14,8 +14,15 @@ import { logEvent } from '../services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from '../services/analytics/metadata.js'
 import { getAPIMetadata } from '../services/api/claude.js'
 import { getAnthropicClient } from '../services/api/client.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIModel,
+  resolveOpenAIReasoningEffort,
+} from '../services/modelBackend/openaiCodexConfig.js'
+import { fetchOpenAIJson } from '../services/modelBackend/openaiApi.js'
 import { getModelBetas, modelSupportsStructuredOutputs } from './betas.js'
 import { computeFingerprint } from './fingerprint.js'
+import { jsonStringify } from './slowOperations.js'
 import { normalizeModelStringForAPI } from './model/model.js'
 
 type MessageParam = Anthropic.MessageParam
@@ -25,6 +32,23 @@ type ToolChoice = Anthropic.ToolChoice
 type BetaMessage = Anthropic.Beta.Messages.BetaMessage
 type BetaJSONOutputFormat = Anthropic.Beta.Messages.BetaJSONOutputFormat
 type BetaThinkingConfigParam = Anthropic.Beta.Messages.BetaThinkingConfigParam
+
+type OpenAIInputItem =
+  | {
+      role: 'user' | 'assistant'
+      content: Array<{ type: 'input_text' | 'output_text'; text: string }>
+    }
+  | {
+      type: 'function_call'
+      call_id: string
+      name: string
+      arguments: string
+    }
+  | {
+      type: 'function_call_output'
+      call_id: string
+      output: string
+    }
 
 export type SideQueryOptions = {
   /** Model to use for the query */
@@ -78,6 +102,181 @@ function extractFirstUserMessageText(messages: MessageParam[]): string {
   return textBlock?.type === 'text' ? textBlock.text : ''
 }
 
+function textBlocksToString(
+  content: string | Anthropic.ContentBlockParam[] | Anthropic.ContentBlock[],
+): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter(
+      block =>
+        typeof block === 'object' &&
+        block !== null &&
+        'type' in block &&
+        block.type === 'text',
+    )
+    .map(block => ('text' in block ? block.text : ''))
+    .join('')
+}
+
+function translateMessagesToResponsesInput(
+  messages: MessageParam[],
+): OpenAIInputItem[] {
+  const input: OpenAIInputItem[] = []
+
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      input.push({
+        role: message.role,
+        content: [
+          {
+            type: message.role === 'assistant' ? 'output_text' : 'input_text',
+            text: message.content,
+          },
+        ],
+      })
+      continue
+    }
+
+    const text = textBlocksToString(message.content)
+    if (text) {
+      input.push({
+        role: message.role,
+        content: [
+          {
+            type: message.role === 'assistant' ? 'output_text' : 'input_text',
+            text,
+          },
+        ],
+      })
+    }
+
+    if (message.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type !== 'tool_use') continue
+        input.push({
+          type: 'function_call',
+          call_id: block.id,
+          name: block.name,
+          arguments: jsonStringify(block.input ?? {}),
+        })
+      }
+    }
+
+    if (message.role === 'user') {
+      for (const block of message.content) {
+        if (block.type !== 'tool_result') continue
+        input.push({
+          type: 'function_call_output',
+          call_id: block.tool_use_id,
+          output:
+            typeof block.content === 'string'
+              ? block.content
+              : jsonStringify(block.content),
+        })
+      }
+    }
+  }
+
+  return input
+}
+
+function buildOpenAIInstructions(
+  system: string | TextBlockParam[] | undefined,
+  skipSystemPromptPrefix: boolean | undefined,
+): string {
+  const blocks: string[] = []
+  if (!skipSystemPromptPrefix) {
+    blocks.push(
+      getCLISyspromptPrefix({
+        isNonInteractive: false,
+        hasAppendSystemPrompt: false,
+      }),
+    )
+  }
+  if (Array.isArray(system)) {
+    blocks.push(...system.map(block => block.text))
+  } else if (system) {
+    blocks.push(system)
+  }
+  return blocks.join('\n')
+}
+
+function mapToolToOpenAIFunction(tool: Tool | BetaToolUnion): Record<string, unknown> {
+  const typedTool = tool as Tool & { input_schema?: unknown }
+  return {
+    type: 'function',
+    name: typedTool.name,
+    description: typedTool.description,
+    parameters:
+      typedTool.input_schema && typeof typedTool.input_schema === 'object'
+        ? typedTool.input_schema
+        : {},
+  }
+}
+
+function mapResponsesOutputToBetaMessage(
+  response: {
+    id: string
+    output?: Array<Record<string, unknown>>
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      input_tokens_details?: { cached_tokens?: number }
+    }
+  },
+  model: string,
+): BetaMessage {
+  const content: BetaContentBlock[] = []
+
+  for (const output of response.output ?? []) {
+    if (output.type === 'message') {
+      const parts = Array.isArray(output.content) ? output.content : []
+      for (const part of parts) {
+        if (part.type === 'output_text' && typeof part.text === 'string') {
+          content.push({ type: 'text', text: part.text } as BetaContentBlock)
+        }
+      }
+      continue
+    }
+
+    if (output.type === 'function_call') {
+      let parsedInput: unknown = {}
+      try {
+        parsedInput =
+          typeof output.arguments === 'string'
+            ? JSON.parse(output.arguments)
+            : output.arguments
+      } catch {
+        parsedInput = { raw_arguments: output.arguments }
+      }
+      content.push({
+        type: 'tool_use',
+        id: String(output.call_id ?? output.id ?? 'tool_use'),
+        name: String(output.name ?? 'tool'),
+        input: parsedInput,
+      } as BetaContentBlock)
+    }
+  }
+
+  const hasToolUse = content.some(block => block.type === 'tool_use')
+
+  return {
+    id: response.id,
+    type: 'message',
+    role: 'assistant',
+    model,
+    content,
+    stop_reason: hasToolUse ? 'tool_use' : 'end_turn',
+    usage: {
+      input_tokens: response.usage?.input_tokens ?? 0,
+      output_tokens: response.usage?.output_tokens ?? 0,
+      cache_read_input_tokens:
+        response.usage?.input_tokens_details?.cached_tokens ?? 0,
+      cache_creation_input_tokens: 0,
+    },
+  } as BetaMessage
+}
+
 /**
  * Lightweight API wrapper for "side queries" outside the main conversation loop.
  *
@@ -120,6 +319,85 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
     thinking,
     stop_sequences,
   } = opts
+
+  if (isOpenAIResponsesBackendEnabled()) {
+    const normalizedModel = resolveOpenAIModel(model)
+    const instructions = buildOpenAIInstructions(system, skipSystemPromptPrefix)
+    const request: Record<string, unknown> = {
+      model: normalizedModel,
+      instructions,
+      input: translateMessagesToResponsesInput(messages),
+      store: false,
+      max_output_tokens: max_tokens,
+    }
+
+    if (tools?.length) {
+      request.tools = tools.map(mapToolToOpenAIFunction)
+      request.tool_choice = tool_choice?.type === 'tool' ? 'required' : 'auto'
+      request.parallel_tool_calls = true
+    }
+
+    if (output_format) {
+      request.text = {
+        format: {
+          type: 'json_schema',
+          name: 'side_query_output',
+          strict: true,
+          schema: output_format.schema,
+        },
+      }
+    }
+
+    if (temperature !== undefined) {
+      request.temperature = temperature
+    }
+    if (thinking !== undefined && thinking !== false) {
+      request.reasoning = {
+        effort: resolveOpenAIReasoningEffort() ?? 'medium',
+      }
+    }
+    if (stop_sequences) {
+      request.stop = stop_sequences
+    }
+
+    const start = Date.now()
+    const payload = await fetchOpenAIJson<{
+      id: string
+      output?: Array<Record<string, unknown>>
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        input_tokens_details?: { cached_tokens?: number }
+      }
+    }>('/responses', {
+      method: 'POST',
+      body: request,
+      signal,
+    })
+    const result = mapResponsesOutputToBetaMessage(payload, normalizedModel)
+
+    const requestId = payload.id
+    const now = Date.now()
+    const lastCompletion = getLastApiCompletionTimestamp()
+    logEvent('tengu_api_success', {
+      requestId:
+        requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      querySource:
+        opts.querySource as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model:
+        normalizedModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      inputTokens: payload.usage?.input_tokens ?? 0,
+      outputTokens: payload.usage?.output_tokens ?? 0,
+      cachedInputTokens: payload.usage?.input_tokens_details?.cached_tokens ?? 0,
+      uncachedInputTokens: 0,
+      durationMsIncludingRetries: now - start,
+      timeSinceLastApiCallMs:
+        lastCompletion !== null ? now - lastCompletion : undefined,
+    })
+    setLastApiCompletionTimestamp(now)
+
+    return result
+  }
 
   const client = await getAnthropicClient({
     maxRetries,

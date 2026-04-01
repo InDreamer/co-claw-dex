@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { IS_FORK_DISTRIBUTION } from '../../constants/distribution.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 
@@ -31,6 +32,10 @@ function normalizeUrl(url: string): string | undefined {
  * Populates officialUrls for isOfficialMcpUrl lookups.
  */
 export async function prefetchOfficialMcpUrls(): Promise<void> {
+  if (IS_FORK_DISTRIBUTION) {
+    return
+  }
+
   if (process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) {
     return
   }

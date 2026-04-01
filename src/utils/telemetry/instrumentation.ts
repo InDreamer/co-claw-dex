@@ -59,6 +59,7 @@ import { jsonStringify } from '../slowOperations.js'
 import { profileCheckpoint } from '../startupProfiler.js'
 import { isBetaTracingEnabled } from './betaSessionTracing.js'
 import { BigQueryMetricsExporter } from './bigqueryExporter.js'
+import { IS_FORK_DISTRIBUTION } from '../../constants/distribution.js'
 import { ClaudeCodeDiagLogger } from './logger.js'
 import { initializePerfettoTracing } from './perfettoTracing.js'
 import {
@@ -334,6 +335,10 @@ function getBigQueryExportingReader() {
 }
 
 function isBigQueryMetricsEnabled() {
+  if (IS_FORK_DISTRIBUTION) {
+    return false
+  }
+
   // BigQuery metrics are enabled for:
   // 1. API customers (excluding Claude.ai subscribers and Bedrock/Vertex)
   // 2. Claude for Enterprise (C4E) users

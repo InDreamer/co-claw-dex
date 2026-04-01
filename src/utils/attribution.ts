@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import { getClientType } from '../bootstrap/state.js'
+import { BRAND_NAME } from '../constants/brand.js'
 import {
   getRemoteSessionUrl,
   isRemoteSessionLocal,
@@ -29,7 +30,9 @@ import {
   getMainLoopModel,
   getPublicModelDisplayName,
   getPublicModelName,
+  renderModelName,
 } from './model/model.js'
+import { isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js'
 import { isMemoryFileAccess } from './sessionFileAccessHooks.js'
 import { getTranscriptPath } from './sessionStorage.js'
 import { readTranscriptForLoad } from './sessionStoragePortable.js'
@@ -39,6 +42,19 @@ import { isUndercover } from './undercover.js'
 export type AttributionTexts = {
   commit: string
   pr: string
+}
+
+function getDefaultAttributionText(): string {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return `Generated with ${BRAND_NAME}`
+  }
+  return `🤖 Generated with [Claude Code](${PRODUCT_URL})`
+}
+
+function getDefaultCommitEmail(): string {
+  return isOpenAIResponsesBackendEnabled()
+    ? 'noreply@codex.local'
+    : 'noreply@anthropic.com'
 }
 
 /**
@@ -75,9 +91,9 @@ export function getAttributionTexts(): AttributionTexts {
   const modelName =
     isInternalModelRepoCached() || isKnownPublicModel
       ? getPublicModelName(model)
-      : 'Claude Opus 4.6'
-  const defaultAttribution = `🤖 Generated with [Claude Code](${PRODUCT_URL})`
-  const defaultCommit = `Co-Authored-By: ${modelName} <noreply@anthropic.com>`
+      : renderModelName(model)
+  const defaultAttribution = getDefaultAttributionText()
+  const defaultCommit = `Co-Authored-By: ${modelName} <${getDefaultCommitEmail()}>`
 
   const settings = getInitialSettings()
 
@@ -325,7 +341,7 @@ export async function getEnhancedPRAttribution(
     return ''
   }
 
-  const defaultAttribution = `🤖 Generated with [Claude Code](${PRODUCT_URL})`
+  const defaultAttribution = getDefaultAttributionText()
 
   // Get AppState first
   const appState = getAppState()
@@ -371,7 +387,7 @@ export async function getEnhancedPRAttribution(
     memoryAccessCount > 0
       ? `, ${memoryAccessCount} ${memoryAccessCount === 1 ? 'memory' : 'memories'} recalled`
       : ''
-  const summary = `🤖 Generated with [Claude Code](${PRODUCT_URL}) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
+  const summary = `${getDefaultAttributionText()} (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
 
   // Append trailer lines for squash-merge survival. Only for allowlisted repos
   // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled —

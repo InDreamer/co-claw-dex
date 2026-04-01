@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { clearTrustedDeviceTokenCache } from '../../bridge/trustedDevice.js';
+import { BRAND_NAME } from '../../constants/brand.js';
 import { Text } from '../../ink.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { refreshGrowthBookAfterAuthChange } from '../../services/analytics/growthbook.js';
 import { getGroveNoticeConfig, getGroveSettings } from '../../services/api/grove.js';
 import { clearPolicyLimitsCache } from '../../services/policyLimits/index.js';
@@ -70,6 +72,10 @@ export async function clearAuthRelatedCaches(): Promise<void> {
   await clearPolicyLimitsCache();
 }
 export async function call(): Promise<React.ReactNode> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return <Text>{BRAND_NAME} does not manage OpenAI/Codex credentials directly. Remove OPENAI_API_KEY from your environment or edit ~/.codex/auth.json to disable them.</Text>;
+  }
+
   await performLogout({
     clearOnboarding: true
   });

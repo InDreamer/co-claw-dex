@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
+import { isOpenAIResponsesBackendEnabled } from '../modelBackend/openaiCodexConfig.js'
 import {
   getOauthAccountInfo,
   getSubscriptionType,
@@ -69,6 +70,9 @@ export async function fetchReferralRedemptions(
  * Prechecks for if user can access guest passes feature
  */
 function shouldCheckForPasses(): boolean {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return false
+  }
   return !!(
     getOauthAccountInfo()?.organizationUuid &&
     isClaudeAISubscriber() &&
@@ -148,6 +152,7 @@ export function formatCreditAmount(reward: ReferrerRewardInfo): string {
  * Returns the reward info if the user is in a v1 campaign, null otherwise
  */
 export function getCachedReferrerReward(): ReferrerRewardInfo | null {
+  if (isOpenAIResponsesBackendEnabled()) return null
   const orgId = getOauthAccountInfo()?.organizationUuid
   if (!orgId) return null
   const config = getGlobalConfig()
@@ -160,6 +165,7 @@ export function getCachedReferrerReward(): ReferrerRewardInfo | null {
  * Returns the number of remaining passes, or null if not available
  */
 export function getCachedRemainingPasses(): number | null {
+  if (isOpenAIResponsesBackendEnabled()) return null
   const orgId = getOauthAccountInfo()?.organizationUuid
   if (!orgId) return null
   const config = getGlobalConfig()

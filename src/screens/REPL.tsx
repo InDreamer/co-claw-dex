@@ -13,6 +13,7 @@ import { useInput } from '../ink.js';
 import { useSearchInput } from '../hooks/useSearchInput.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { useSearchHighlight } from '../ink/hooks/use-search-highlight.js';
+import { BRAND_NAME } from '../constants/brand.js';
 import type { JumpHandle } from '../components/VirtualMessageList.js';
 import { renderMessagesToPlainText } from '../utils/exportRenderer.js';
 import { openFileInExternalEditor } from '../utils/editor.js';
@@ -1132,7 +1133,7 @@ export function REPL({
   // session from mid-conversation context.
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
-  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'Claude Code';
+  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? BRAND_NAME;
   const isWaitingForApproval = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
   // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
   // wait for input. Require jsx != null — if the flag is stuck true but jsx

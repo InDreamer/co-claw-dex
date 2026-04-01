@@ -1,120 +1,103 @@
-# Claude Code (Unofficial Source Extraction)
+# Claude Code Codex/OpenAI Fork
 
-> **This is NOT an official Anthropic repository.**
+This workspace is a locally runnable Claude Code source fork that has been adapted to use an OpenAI-compatible Responses backend as its primary coding model runtime.
 
-This repository contains the extracted TypeScript source code of [Anthropic's Claude Code](https://www.anthropic.com/) CLI tool — Anthropic's official CLI that lets you interact with Claude directly from the terminal to perform software engineering tasks like editing files, running commands, searching codebases, managing git workflows, and more.
+The goal of this fork is not to redesign the CLI. The goal is to preserve the existing terminal UX, tool system, permission model, and agent flow while replacing the model provider boundary with a Codex/OpenAI-compatible backend.
 
-The source was obtained by unpacking the source map (`cli.js.map`) bundled with the officially published npm package.
+## Status
 
-- **npm package:** [@anthropic-ai/claude-code v2.1.88](https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.88)
-- **Official homepage:** [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code)
+This repository now builds and runs as a usable coding agent platform.
 
-## How It Leaked
+What is already migrated:
 
-The source code leak was discovered by [Chaofan Shou (@Fried_rice)](https://x.com/Fried_rice) and posted publicly on March 31, 2026:
+- OpenAI/Codex-compatible Responses backend is the default model path
+- Credentials are loaded from `OPENAI_API_KEY` or `~/.codex/auth.json`
+- Provider settings are loaded from `~/.codex/config.toml`
+- Responses streaming is translated into the existing internal message stream
+- Function calling is translated into the existing internal tool-use flow
+- Legacy Claude-style model aliases are preserved for compatibility
+- Official Anthropic self-update, install, telemetry, GrowthBook, and preconnect paths are disabled for this fork
 
-> *"Claude code source code has been leaked via a map file in their npm registry!"*
->
-> — [@Fried_rice](https://x.com/Fried_rice), March 31, 2026
-
-The published npm package (`@anthropic-ai/claude-code`) included a source map file (`cli.js.map`) containing the full, unobfuscated TypeScript source code. The `sourcesContent` field of the source map held every original `.ts`/`.tsx` file that was bundled into `cli.js`, making the entire codebase trivially extractable.
-
-## Why does this exist?
-
-Anthropic publishes Claude Code as a bundled JavaScript CLI on npm. The published package includes a source map file (`cli.js.map`) that contains the original TypeScript source. This repository simply extracts and preserves that source for easier reading and reference.
-
-## How to get it yourself
-
-### Clone this repository
+## Quick Start
 
 ```bash
-git clone git@github.com:chatgptprojects/claude-code.git
-cd claude-code
+npm install
+npm run build
+node cli.js --help
 ```
 
-### Or extract it yourself from npm
-
-1. **Install the package:**
+Basic verification:
 
 ```bash
-mkdir claude-code-extract && cd claude-code-extract
-npm pack @anthropic-ai/claude-code@2.1.88
-tar -xzf anthropic-ai-claude-code-2.1.88.tgz
-cd package
+node cli.js auth status --text
+node cli.js -p "Reply with exactly: hello"
 ```
 
-2. **Run the unpack script:**
-
-Create a file called `unpack.mjs`:
-
-```js
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
-
-const mapFile = join(import.meta.dirname, "cli.js.map");
-const outDir = join(import.meta.dirname, "unpacked");
-
-console.log("Reading source map...");
-const map = JSON.parse(readFileSync(mapFile, "utf-8"));
-
-const sources = map.sources || [];
-const contents = map.sourcesContent || [];
-
-console.log(`Found ${sources.length} source files.`);
-
-let written = 0;
-let skipped = 0;
-
-for (let i = 0; i < sources.length; i++) {
-  const src = sources[i];
-  const content = contents[i];
-
-  if (content == null) {
-    skipped++;
-    continue;
-  }
-
-  const outPath = join(outDir, src.replace(/^\.\.\//g, ""));
-  mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, content);
-  written++;
-}
-
-console.log(`Done! Wrote ${written} files to ${outDir}`);
-if (skipped > 0) console.log(`Skipped ${skipped} files with no content.`);
-```
-
-3. **Run it:**
+Launcher helpers:
 
 ```bash
-node unpack.mjs
+npm run activate-cli
+npm run restore-cli
 ```
 
-The extracted source will be in the `unpacked/` directory.
+One-command smoke check:
 
-## Project Structure
-
-```
-src/
-├── cli/           # CLI entrypoint and argument parsing
-├── commands/      # Command implementations
-├── components/    # UI components (Ink/React)
-├── constants/     # App constants and configuration
-├── context/       # Context management
-├── hooks/         # React hooks
-├── ink/           # Terminal UI (Ink framework)
-├── services/      # Core services
-├── skills/        # Skill definitions
-├── tools/         # Tool implementations (file editing, search, etc.)
-├── types/         # TypeScript type definitions
-├── utils/         # Utility functions
-├── main.tsx       # Main application entry
-├── query.ts       # Query handling
-└── ...
+```bash
+npm run smoke
 ```
 
-## Disclaimer
+## Credential Sources
 
-All code in this repository is the intellectual property of [Anthropic](https://www.anthropic.com/). This repository is provided for **educational and reference purposes only**. Please refer to Anthropic's [license terms](https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.88) for usage restrictions.
+This fork reuses Codex-style local configuration.
 
-This is **not** affiliated with, endorsed by, or supported by Anthropic.
+Expected credential sources:
+
+- `OPENAI_API_KEY`
+- `~/.codex/auth.json`
+
+Expected provider settings source:
+
+- `~/.codex/config.toml`
+
+Typical values used by this fork:
+
+- model provider base URL
+- default model
+- wire API mode
+- response storage preference
+
+Minimal provider config example:
+
+```toml
+model_provider = "openai"
+model = "gpt-5.4"
+disable_response_storage = true
+
+[model_providers.openai]
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+```
+
+## Architecture
+
+The migration keeps the original runtime shape as intact as possible.
+
+Instead of rewriting the agent stack, the fork translates at the provider boundary:
+
+- Internal prompt and message flow remain Claude Code-shaped
+- Internal tool orchestration remains Claude Code-shaped
+- OpenAI Responses requests are generated from existing message history
+- Responses streaming events are translated back into the existing stream event format
+- Function calls and function-call outputs are replayed statelessly for compatibility with proxy providers that do not reliably support `previous_response_id`
+
+This means most of the original CLI, Hermes-style component behavior, and tool plumbing can remain unchanged while the underlying model runtime is replaced.
+
+## Notes
+
+- `cli.js` at the repo root is a thin launcher for the built artifact in `dist/cli.js`
+- This fork is intended to be run from source, not upgraded from official Anthropic distribution channels
+- `claude update` and `claude install` are intentionally disabled from pulling official Anthropic releases in this fork
+
+## Origin
+
+This codebase began as a source extraction from the published Claude Code bundle and was then patched into a local, buildable, OpenAI/Codex-adapted development workspace for personal use.

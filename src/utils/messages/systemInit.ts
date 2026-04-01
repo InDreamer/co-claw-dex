@@ -11,6 +11,10 @@ import {
   AGENT_TOOL_NAME,
   LEGACY_AGENT_TOOL_NAME,
 } from 'src/tools/AgentTool/constants.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  loadCodexAuthConfig,
+} from 'src/services/modelBackend/openaiCodexConfig.js'
 import { getAnthropicApiKeyWithSource } from '../auth.js'
 import { getCwd } from '../cwd.js'
 import { getFastModeState } from '../fastMode.js'
@@ -54,6 +58,14 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
   const settings = getSettings_DEPRECATED()
   const outputStyle = settings?.outputStyle ?? DEFAULT_OUTPUT_STYLE_NAME
 
+  const apiKeySource = isOpenAIResponsesBackendEnabled()
+    ? process.env.OPENAI_API_KEY?.trim()
+      ? 'OPENAI_API_KEY'
+      : loadCodexAuthConfig().openaiApiKey
+        ? '~/.codex/auth.json'
+        : 'none'
+    : getAnthropicApiKeyWithSource().source
+
   const initMessage: SDKMessage = {
     type: 'system',
     subtype: 'init',
@@ -69,7 +81,7 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
     slash_commands: inputs.commands
       .filter(c => c.userInvocable !== false)
       .map(c => c.name),
-    apiKeySource: getAnthropicApiKeyWithSource().source as ApiKeySource,
+    apiKeySource: apiKeySource as ApiKeySource,
     betas: getSdkBetas(),
     claude_code_version: MACRO.VERSION,
     output_style: outputStyle,

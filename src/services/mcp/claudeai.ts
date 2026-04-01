@@ -5,6 +5,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
+import { isOpenAIResponsesBackendEnabled } from '../modelBackend/openaiCodexConfig.js'
 import { getClaudeAIOAuthTokens } from 'src/utils/auth.js'
 import { getGlobalConfig, saveGlobalConfig } from 'src/utils/config.js'
 import { logForDebugging } from 'src/utils/debug.js'
@@ -39,6 +40,10 @@ const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 export const fetchClaudeAIMcpConfigsIfEligible = memoize(
   async (): Promise<Record<string, ScopedMcpServerConfig>> => {
     try {
+      if (isOpenAIResponsesBackendEnabled()) {
+        logForDebugging('[claudeai-mcp] Disabled on OpenAI/Codex backend')
+        return {}
+      }
       if (isEnvDefinedFalsy(process.env.ENABLE_CLAUDEAI_MCP_SERVERS)) {
         logForDebugging('[claudeai-mcp] Disabled via env var')
         logEvent('tengu_claudeai_mcp_eligibility', {

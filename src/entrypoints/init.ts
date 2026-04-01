@@ -17,6 +17,7 @@ import {
   isEligibleForRemoteManagedSettings,
   waitForRemoteManagedSettingsToLoad,
 } from '../services/remoteManagedSettings/index.js'
+import { IS_FORK_DISTRIBUTION } from '../constants/distribution.js'
 import { preconnectAnthropicApi } from '../utils/apiPreconnect.js'
 import { applyExtraCACertsFromConfig } from '../utils/caCertsConfig.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
@@ -91,23 +92,27 @@ export const init = memoize(async (): Promise<void> => {
     // loading OpenTelemetry sdk-logs at startup). growthbook.js is already in
     // the module cache by this point (firstPartyEventLogger imports it), so the
     // second dynamic import adds no load cost.
-    void Promise.all([
-      import('../services/analytics/firstPartyEventLogger.js'),
-      import('../services/analytics/growthbook.js'),
-    ]).then(([fp, gb]) => {
-      fp.initialize1PEventLogging()
-      // Rebuild the logger provider if tengu_1p_event_batch_config changes
-      // mid-session. Change detection (isEqual) is inside the handler so
-      // unchanged refreshes are no-ops.
-      gb.onGrowthBookRefresh(() => {
-        void fp.reinitialize1PEventLoggingIfConfigChanged()
+    if (!IS_FORK_DISTRIBUTION) {
+      void Promise.all([
+        import('../services/analytics/firstPartyEventLogger.js'),
+        import('../services/analytics/growthbook.js'),
+      ]).then(([fp, gb]) => {
+        fp.initialize1PEventLogging()
+        // Rebuild the logger provider if tengu_1p_event_batch_config changes
+        // mid-session. Change detection (isEqual) is inside the handler so
+        // unchanged refreshes are no-ops.
+        gb.onGrowthBookRefresh(() => {
+          void fp.reinitialize1PEventLoggingIfConfigChanged()
+        })
       })
-    })
+    }
     profileCheckpoint('init_after_1p_event_logging')
 
     // Populate OAuth account info if it is not already cached in config. This is needed since the
     // OAuth account info may not be populated when logging in through the VSCode extension.
-    void populateOAuthAccountInfoIfNeeded()
+    if (!IS_FORK_DISTRIBUTION) {
+      void populateOAuthAccountInfoIfNeeded()
+    }
     profileCheckpoint('init_after_oauth_populate')
 
     // Initialize JetBrains IDE detection asynchronously (populates cache for later sync access)
@@ -120,10 +125,10 @@ export const init = memoize(async (): Promise<void> => {
     // Initialize the loading promise early so that other systems (like plugin hooks)
     // can await remote settings loading. The promise includes a timeout to prevent
     // deadlocks if loadRemoteManagedSettings() is never called (e.g., Agent SDK tests).
-    if (isEligibleForRemoteManagedSettings()) {
+    if (!IS_FORK_DISTRIBUTION && isEligibleForRemoteManagedSettings()) {
       initializeRemoteManagedSettingsLoadingPromise()
     }
-    if (isPolicyLimitsEligible()) {
+    if (!IS_FORK_DISTRIBUTION && isPolicyLimitsEligible()) {
       initializePolicyLimitsLoadingPromise()
     }
     profileCheckpoint('init_after_remote_settings_check')
@@ -156,7 +161,9 @@ export const init = memoize(async (): Promise<void> => {
     // connection uses the right transport. Fire-and-forget; skipped for
     // proxy/mTLS/unix/cloud-provider where the SDK's dispatcher wouldn't
     // reuse the global pool.
-    preconnectAnthropicApi()
+    if (!IS_FORK_DISTRIBUTION) {
+      preconnectAnthropicApi()
+    }
 
     // CCR upstreamproxy: start the local CONNECT relay so agent subprocesses
     // can reach org-configured upstreams with credential injection. Gated on

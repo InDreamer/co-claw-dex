@@ -96,10 +96,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../analytics/index.js'
-import {
-  getMaxOutputTokensForModel,
-  queryModelWithStreaming,
-} from '../api/claude.js'
+import { getModelBackend } from '../modelBackend/index.js'
 import {
   getPromptTooLongTokenGap,
   PROMPT_TOO_LONG_ERROR_MESSAGE,
@@ -1148,6 +1145,7 @@ async function streamCompactSummary({
   preCompactTokenCount: number
   cacheSafeParams: CacheSafeParams
 }): Promise<AssistantMessage> {
+  const modelBackend = getModelBackend()
   // When prompt cache sharing is enabled, use forked agent to reuse the
   // main conversation's cached prefix (system prompt, tools, context messages).
   // Falls back to regular streaming path on failure.
@@ -1289,7 +1287,7 @@ async function streamCompactSummary({
           )
         : [FileReadTool]
 
-      const streamingGen = queryModelWithStreaming({
+      const streamingGen = modelBackend.streamTurn({
         messages: normalizeMessagesForAPI(
           stripImagesFromMessages(
             stripReinjectedAttachments([
@@ -1316,7 +1314,7 @@ async function streamCompactSummary({
           hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
           maxOutputTokensOverride: Math.min(
             COMPACT_MAX_OUTPUT_TOKENS,
-            getMaxOutputTokensForModel(context.options.mainLoopModel),
+            modelBackend.getMaxOutputTokens(context.options.mainLoopModel),
           ),
           querySource: 'compact',
           agents: context.options.agentDefinitions.activeAgents,

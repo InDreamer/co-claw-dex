@@ -4,6 +4,7 @@ import {
   getDynamicConfig_CACHED_MAY_BE_STALE,
   getFeatureValue_CACHED_MAY_BE_STALE,
 } from '../services/analytics/growthbook.js'
+import { isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js'
 // Namespace import breaks the bridgeEnabled → auth → config → bridgeEnabled
 // cycle — authModule.foo is a live binding, so by the time the helpers below
 // call it, auth.js is fully loaded. Previously used require() for the same
@@ -26,6 +27,9 @@ import { lt } from '../utils/semver.js'
  * is only referenced when bridge mode is enabled at build time.
  */
 export function isBridgeEnabled(): boolean {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return false
+  }
   // Positive ternary pattern — see docs/feature-gating.md.
   // Negative pattern (if (!feature(...)) return) does not eliminate
   // inline string literals from external builds.
@@ -48,6 +52,9 @@ export function isBridgeEnabled(): boolean {
  * `isBridgeEnabled()` instead.
  */
 export async function isBridgeEnabledBlocking(): Promise<boolean> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return false
+  }
   return feature('BRIDGE_MODE')
     ? isClaudeAISubscriber() &&
         (await checkGate_CACHED_OR_BLOCKING('tengu_ccr_bridge'))
@@ -68,6 +75,9 @@ export async function isBridgeEnabledBlocking(): Promise<boolean> {
  * that re-login would fix it. See CC-1165 / gh-33105.
  */
 export async function getBridgeDisabledReason(): Promise<string | null> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return 'Remote Control is unavailable on the OpenAI/Codex backend.'
+  }
   if (feature('BRIDGE_MODE')) {
     if (!isClaudeAISubscriber()) {
       return 'Remote Control requires a claude.ai subscription. Run `claude auth login` to sign in with your claude.ai account.'

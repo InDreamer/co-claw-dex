@@ -1,4 +1,5 @@
 import { readdir } from 'fs/promises'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
 import { getCwd } from '../../utils/cwd.js'
 import { registerBundledSkill } from '../bundledSkills.js'
 
@@ -186,6 +187,7 @@ export function registerClaudeApiSkill(): void {
       'DO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks.',
     allowedTools: ['Read', 'Grep', 'Glob', 'WebFetch'],
     userInvocable: true,
+    isEnabled: () => !isOpenAIResponsesBackendEnabled(),
     async getPromptForCommand(args) {
       const content = await import('./claudeApiContent.js')
       const lang = await detectLanguage()

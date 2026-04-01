@@ -17,6 +17,10 @@ import { MCPConnectionManager } from '../../services/mcp/MCPConnectionManager.js
 import { AppStateProvider } from '../../state/AppState.js';
 import { onChangeAppState } from '../../state/onChangeAppState.js';
 import { isAnthropicAuthEnabled } from '../../utils/auth.js';
+import {
+  FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE,
+  IS_FORK_DISTRIBUTION,
+} from '../../constants/distribution.js';
 export async function setupTokenHandler(root: Root): Promise<void> {
   logEvent('tengu_setup_token_command', {});
   const showAuthWarning = !isAnthropicAuthEnabled();
@@ -90,6 +94,13 @@ export async function doctorHandler(root: Root): Promise<void> {
 export async function installHandler(target: string | undefined, options: {
   force?: boolean;
 }): Promise<void> {
+  if (IS_FORK_DISTRIBUTION) {
+    process.stdout.write(
+      `${FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE}\n` +
+        'Run this workspace directly, or point your shell launcher at this checkout instead of installing the official native build.\n',
+    );
+    process.exit(0);
+  }
   const {
     setup
   } = await import('../../setup.js');

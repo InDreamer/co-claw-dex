@@ -6,8 +6,16 @@ import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
-import { queryModelWithStreaming } from '../../services/api/claude.js'
-import { buildTool, type ToolDef } from '../../Tool.js'
+import { queryWithModel } from '../../services/api/claude.js'
+import { callMCPToolWithUrlElicitationRetry } from '../../services/mcp/client.js'
+import type { ConnectedMCPServer } from '../../services/mcp/types.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIModel,
+} from '../../services/modelBackend/openaiCodexConfig.js'
+import { fetchOpenAIJson } from '../../services/modelBackend/openaiApi.js'
+import { getModelBackend } from '../../services/modelBackend/index.js'
+import { buildTool, type ToolDef, type ToolUseContext } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { createUserMessage } from '../../utils/messages.js'
@@ -21,6 +29,49 @@ import {
   renderToolUseMessage,
   renderToolUseProgressMessage,
 } from './UI.js'
+
+type OpenAIWebSearchSource = {
+  title?: string
+  url?: string
+}
+
+type OpenAIWebSearchCall = {
+  type: 'web_search_call'
+  id?: string
+  action?: {
+    type?: 'search' | 'open_page' | 'find_in_page'
+    query?: string
+    queries?: string[]
+    sources?: OpenAIWebSearchSource[]
+  }
+}
+
+type OpenAIOutputTextAnnotation = {
+  type?: string
+  title?: string
+  url?: string
+}
+
+type OpenAIOutputTextPart = {
+  type: 'output_text'
+  text?: string
+  annotations?: OpenAIOutputTextAnnotation[]
+}
+
+type OpenAIMessageOutput = {
+  type: 'message'
+  content?: OpenAIOutputTextPart[]
+}
+
+type OpenAIWebSearchResponse = {
+  output?: Array<OpenAIWebSearchCall | OpenAIMessageOutput | Record<string, unknown>>
+}
+
+type GrokSearchResult = {
+  title: string
+  url: string
+  description?: string
+}
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
@@ -149,6 +200,476 @@ function makeOutputFromSearchResponse(
   }
 }
 
+function normalizeDomainFilter(domain: string): string {
+  return domain
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+}
+
+function getMessageOutputText(
+  item: OpenAIMessageOutput,
+): { text: string; annotations: OpenAIOutputTextAnnotation[] } {
+  const textParts = (item.content ?? []).filter(
+    (part): part is OpenAIOutputTextPart => part.type === 'output_text',
+  )
+
+  return {
+    text: textParts.map(part => part.text ?? '').join('').trim(),
+    annotations: textParts.flatMap(part => part.annotations ?? []),
+  }
+}
+
+function matchesBlockedDomain(url: string, blockedDomains: string[]): boolean {
+  if (blockedDomains.length === 0) return false
+
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    hostname = url.toLowerCase()
+  }
+
+  return blockedDomains.some(domain => {
+    const normalized = normalizeDomainFilter(domain).toLowerCase()
+    return hostname === normalized || hostname.endsWith(`.${normalized}`)
+  })
+}
+
+function dedupeSearchHits(
+  hits: Array<{ title: string; url: string }>,
+): Array<{ title: string; url: string }> {
+  const seen = new Set<string>()
+  const deduped: Array<{ title: string; url: string }> = []
+
+  for (const hit of hits) {
+    const key = hit.url.trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    deduped.push(hit)
+  }
+
+  return deduped
+}
+
+function makeOutputFromOpenAIWebSearchResponse(
+  response: OpenAIWebSearchResponse,
+  query: string,
+  durationSeconds: number,
+  blockedDomains: string[],
+): Output {
+  const results: (SearchResult | string)[] = []
+  const searchCallResults: SearchResult[] = []
+
+  for (const item of response.output ?? []) {
+    if (item.type === 'web_search_call') {
+      const rawSources = item.action?.sources ?? []
+      const hits = dedupeSearchHits(
+        rawSources
+          .map(source => ({
+            title: source.title?.trim() || source.url?.trim() || 'Untitled source',
+            url: source.url?.trim() || '',
+          }))
+          .filter(source => source.url.length > 0)
+          .filter(source => !matchesBlockedDomain(source.url, blockedDomains)),
+      )
+
+      if (hits.length > 0) {
+        searchCallResults.push({
+          tool_use_id: item.id ?? `web_search_${searchCallResults.length + 1}`,
+          content: hits,
+        })
+      }
+      continue
+    }
+
+    if (item.type === 'message') {
+      const { text, annotations } = getMessageOutputText(item)
+      if (text) {
+        results.push(text)
+      }
+
+      const citedHits = dedupeSearchHits(
+        annotations
+          .filter(
+            (annotation): annotation is OpenAIOutputTextAnnotation & {
+              type: 'url_citation'
+              title?: string
+              url: string
+            } =>
+              annotation.type === 'url_citation' &&
+              typeof annotation.url === 'string' &&
+              annotation.url.length > 0,
+          )
+          .map(annotation => ({
+            title: annotation.title?.trim() || annotation.url,
+            url: annotation.url,
+          }))
+          .filter(source => !matchesBlockedDomain(source.url, blockedDomains)),
+      )
+
+      if (
+        citedHits.length > 0 &&
+        !searchCallResults.some(existing =>
+          citedHits.every(hit =>
+            existing.content.some(existingHit => existingHit.url === hit.url),
+          ),
+        )
+      ) {
+        searchCallResults.push({
+          tool_use_id: `citations_${searchCallResults.length + 1}`,
+          content: citedHits,
+        })
+      }
+    }
+  }
+
+  results.push(...searchCallResults)
+
+  return {
+    query,
+    results,
+    durationSeconds,
+  }
+}
+
+async function runOpenAIWebSearch(
+  input: Input,
+  model: string,
+  signal: AbortSignal,
+  onProgress?: (progress: {
+    toolUseID: string
+    data: WebSearchProgress
+  }) => void,
+): Promise<Output> {
+  const startTime = performance.now()
+  const normalizedAllowedDomains = (input.allowed_domains ?? []).map(
+    normalizeDomainFilter,
+  )
+  const normalizedBlockedDomains = (input.blocked_domains ?? []).map(
+    normalizeDomainFilter,
+  )
+
+  onProgress?.({
+    toolUseID: 'search-progress-1',
+    data: {
+      type: 'query_update',
+      query: input.query,
+    },
+  })
+
+  const instructions = [
+    'You are executing a web search tool call inside a coding agent.',
+    'Search the web for the user query and return a concise factual summary.',
+    'Prefer the most relevant and current sources.',
+    normalizedBlockedDomains.length > 0
+      ? `Do not rely on or cite these blocked domains: ${normalizedBlockedDomains.join(', ')}.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const request: Record<string, unknown> = {
+    model,
+    instructions,
+    input: input.query,
+    tools: [
+      {
+        type: 'web_search',
+        ...(normalizedAllowedDomains.length > 0
+          ? {
+              filters: {
+                allowed_domains: normalizedAllowedDomains,
+              },
+            }
+          : {}),
+        external_web_access: true,
+      },
+    ],
+    include: ['web_search_call.action.sources'],
+    max_tool_calls: 8,
+    tool_choice: 'required',
+    store: false,
+  }
+
+  const payload = await fetchOpenAIJson<OpenAIWebSearchResponse>('/responses', {
+    method: 'POST',
+    body: request,
+    signal,
+  })
+  const durationSeconds = (performance.now() - startTime) / 1000
+  const output = makeOutputFromOpenAIWebSearchResponse(
+    payload,
+    input.query,
+    durationSeconds,
+    normalizedBlockedDomains,
+  )
+
+  output.results.forEach((result, index) => {
+    if (typeof result === 'string') return
+    onProgress?.({
+      toolUseID: result.tool_use_id || `search-progress-${index + 2}`,
+      data: {
+        type: 'search_results_received',
+        resultCount: result.content.length,
+        query: input.query,
+      },
+    })
+  })
+
+  return output
+}
+
+function buildFallbackSearchQuery(input: Input): string {
+  const allowed = (input.allowed_domains ?? [])
+    .map(normalizeDomainFilter)
+    .filter(Boolean)
+  const blocked = (input.blocked_domains ?? [])
+    .map(normalizeDomainFilter)
+    .filter(Boolean)
+
+  const allowClause =
+    allowed.length > 0
+      ? allowed.map(domain => `site:${domain}`).join(' OR ') + ' '
+      : ''
+  const blockClause =
+    blocked.length > 0
+      ? ' ' + blocked.map(domain => `-site:${domain}`).join(' ')
+      : ''
+
+  return `${allowClause}${input.query}${blockClause}`.trim()
+}
+
+function stripMarkdownCodeFence(text: string): string {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  return fenced?.[1]?.trim() || trimmed
+}
+
+function extractUrlsFromText(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s)>\]]+/g) ?? []
+  return [...new Set(matches.map(match => match.trim()))]
+}
+
+function normalizeParsedSearchResults(parsed: unknown): GrokSearchResult[] {
+  if (!Array.isArray(parsed)) {
+    throw new Error('Unexpected grok-search result format')
+  }
+
+  const textWrappedResults = parsed.filter(
+    (item): item is { type: 'text'; text: string } =>
+      typeof item === 'object' &&
+      item !== null &&
+      'type' in item &&
+      item.type === 'text' &&
+      'text' in item &&
+      typeof item.text === 'string',
+  )
+  if (textWrappedResults.length > 0) {
+    const nestedText = textWrappedResults.map(item => item.text).join('\n').trim()
+    return parseGrokSearchResults(nestedText)
+  }
+
+  return parsed
+    .filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === 'object' && item !== null,
+    )
+    .map(item => ({
+      title:
+        (typeof item.title === 'string' && item.title.trim()) ||
+        (typeof item.url === 'string' && item.url.trim()) ||
+        'Untitled result',
+      url: typeof item.url === 'string' ? item.url.trim() : '',
+      description:
+        typeof item.description === 'string'
+          ? item.description.trim()
+          : typeof item.summary === 'string'
+            ? item.summary.trim()
+            : undefined,
+    }))
+    .filter(item => item.url.length > 0)
+}
+
+function parseGrokSearchResults(rawText: string): GrokSearchResult[] {
+  const stripped = stripMarkdownCodeFence(rawText)
+  const parsed = jsonParse(stripped) as unknown
+  return normalizeParsedSearchResults(parsed)
+}
+
+function parseGrokSearchPayload(rawText: string): {
+  summary: string | null
+  results: GrokSearchResult[]
+} {
+  const stripped = stripMarkdownCodeFence(rawText)
+  const parsed = jsonParse(stripped) as unknown
+
+  if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    'content' in parsed &&
+    typeof parsed.content === 'string'
+  ) {
+    const summary = parsed.content.trim()
+    const results = extractUrlsFromText(summary).map(url => ({
+      title: url,
+      url,
+    }))
+    return { summary: summary || null, results }
+  }
+
+  return {
+    summary: null,
+    results: normalizeParsedSearchResults(parsed),
+  }
+}
+
+function findGrokSearchClient(
+  context: Pick<ToolUseContext, 'getAppState'>,
+): ConnectedMCPServer | undefined {
+  const appState = context.getAppState()
+  const client = appState.mcp.clients.find(
+    candidate =>
+      candidate.type === 'connected' &&
+      candidate.name.toLowerCase().includes('grok-search'),
+  )
+
+  return client?.type === 'connected' ? (client as ConnectedMCPServer) : undefined
+}
+
+async function summarizeSearchResults(
+  results: GrokSearchResult[],
+  signal: AbortSignal,
+  model: string,
+): Promise<string | null> {
+  if (results.length === 0) return null
+
+  const prompt = [
+    'Summarize these search results in 2-4 concise sentences.',
+    'Only use the provided results.',
+    'Do not invent facts that are not present in the snippets.',
+    '',
+    jsonStringify(results.slice(0, 8)),
+  ].join('\n')
+
+  const response = await queryWithModel({
+    systemPrompt: asSystemPrompt([
+      'You summarize search results for an internal web-search tool.',
+    ]),
+    userPrompt: prompt,
+    signal,
+    options: {
+      model,
+      querySource: 'web_search_tool',
+      enablePromptCaching: false,
+      agents: [],
+      isNonInteractiveSession: true,
+      hasAppendSystemPrompt: false,
+      mcpTools: [],
+    },
+  })
+
+  const text = response.message.content
+    .filter(block => block.type === 'text')
+    .map(block => (block.type === 'text' ? block.text : ''))
+    .join('')
+    .trim()
+
+  return text || null
+}
+
+async function runMcpFallbackWebSearch(
+  input: Input,
+  context: ToolUseContext,
+  model: string,
+  onProgress?: (progress: {
+    toolUseID: string
+    data: WebSearchProgress
+  }) => void,
+): Promise<Output> {
+  const grokClient = findGrokSearchClient(context)
+  if (!grokClient) {
+    throw new Error(
+      'WebSearch failed through the Responses provider and no grok-search MCP server is connected for fallback.',
+    )
+  }
+
+  const startTime = performance.now()
+  const searchQuery = buildFallbackSearchQuery(input)
+
+  onProgress?.({
+    toolUseID: 'search-progress-fallback',
+    data: {
+      type: 'query_update',
+      query: searchQuery,
+    },
+  })
+
+  const mcpResult = await callMCPToolWithUrlElicitationRetry({
+    client: grokClient,
+    clientConnection: grokClient,
+    tool: 'web_search',
+    args: {
+      query: searchQuery,
+    },
+    signal: context.abortController.signal,
+    setAppState: context.setAppState,
+    handleElicitation: context.handleElicitation,
+  })
+
+  const rawText =
+    typeof mcpResult.content === 'string'
+      ? mcpResult.content.trim()
+      : (mcpResult.content ?? [])
+          .filter(
+            (block): block is { type: 'text'; text: string } =>
+              typeof block === 'object' &&
+              block !== null &&
+              'type' in block &&
+              block.type === 'text' &&
+              'text' in block &&
+              typeof block.text === 'string',
+          )
+          .map(block => block.text)
+          .join('\n')
+          .trim()
+
+  const payload = parseGrokSearchPayload(rawText)
+  const parsedResults = payload.results
+  const summary =
+    payload.summary ??
+    (await summarizeSearchResults(
+      parsedResults,
+      context.abortController.signal,
+      model,
+    ))
+
+  onProgress?.({
+    toolUseID: 'search-progress-fallback-results',
+    data: {
+      type: 'search_results_received',
+      resultCount: parsedResults.length,
+      query: searchQuery,
+    },
+  })
+
+  const durationSeconds = (performance.now() - startTime) / 1000
+  return {
+    query: input.query,
+    results: [
+      ...(summary ? [summary] : []),
+      {
+        tool_use_id: `mcp_web_search_${Date.now()}`,
+        content: parsedResults.map(result => ({
+          title: result.title,
+          url: result.url,
+        })),
+      },
+    ],
+    durationSeconds,
+  }
+}
+
 export const WebSearchTool = buildTool({
   name: WEB_SEARCH_TOOL_NAME,
   searchHint: 'search the web for current information',
@@ -254,6 +775,39 @@ export const WebSearchTool = buildTool({
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
     const startTime = performance.now()
     const { query } = input
+
+    if (isOpenAIResponsesBackendEnabled()) {
+      const useHaiku = getFeatureValue_CACHED_MAY_BE_STALE(
+        'tengu_plum_vx3',
+        false,
+      )
+
+      const model = resolveOpenAIModel(
+        useHaiku ? getSmallFastModel() : context.options.mainLoopModel,
+      )
+
+      try {
+        return {
+          data: await runOpenAIWebSearch(
+            input,
+            model,
+            context.abortController.signal,
+            onProgress,
+          ),
+        }
+      } catch (error) {
+        logError(error)
+        return {
+          data: await runMcpFallbackWebSearch(
+            input,
+            context,
+            model,
+            onProgress,
+          ),
+        }
+      }
+    }
+
     const userMessage = createUserMessage({
       content: 'Perform a web search for the query: ' + query,
     })
@@ -265,7 +819,8 @@ export const WebSearchTool = buildTool({
     )
 
     const appState = context.getAppState()
-    const queryStream = queryModelWithStreaming({
+    const modelBackend = getModelBackend()
+    const queryStream = modelBackend.streamTurn({
       messages: [userMessage],
       systemPrompt: asSystemPrompt([
         'You are an assistant for performing a web search tool use',

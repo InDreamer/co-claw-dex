@@ -25,6 +25,12 @@ import { jsonStringify } from '../utils/slowOperations.js'
 import { isToolReferenceBlock } from '../utils/toolSearch.js'
 import { getAPIMetadata, getExtraBodyParams } from './api/claude.js'
 import { getAnthropicClient } from './api/client.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIModel,
+} from './modelBackend/openaiCodexConfig.js'
+import { fetchOpenAIJson } from './modelBackend/openaiApi.js'
+import type { OpenAIInputTokenCountResponse } from './modelBackend/openaiResponsesTypes.js'
 import { withTokenCountVCR } from './vcr.js'
 
 // Minimal values for token counting with thinking enabled
@@ -121,6 +127,164 @@ function stripToolSearchFieldsFromMessages(
   })
 }
 
+type OpenAIInputItem =
+  | {
+      role: 'user' | 'assistant'
+      content: Array<{ type: 'input_text' | 'output_text'; text: string }>
+    }
+  | {
+      type: 'function_call'
+      call_id: string
+      name: string
+      arguments: string
+    }
+  | {
+      type: 'function_call_output'
+      call_id: string
+      output: string
+    }
+
+function textBlocksToString(
+  content: string | Anthropic.ContentBlockParam[] | Anthropic.ContentBlock[],
+): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter(
+      block =>
+        typeof block === 'object' &&
+        block !== null &&
+        'type' in block &&
+        block.type === 'text',
+    )
+    .map(block => ('text' in block ? block.text : ''))
+    .join('')
+}
+
+function translateMessagesToResponsesInput(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+): OpenAIInputItem[] {
+  const input: OpenAIInputItem[] = []
+
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      input.push({
+        role: message.role,
+        content: [
+          {
+            type: message.role === 'assistant' ? 'output_text' : 'input_text',
+            text: message.content,
+          },
+        ],
+      })
+      continue
+    }
+
+    const text = textBlocksToString(message.content)
+    if (text) {
+      input.push({
+        role: message.role,
+        content: [
+          {
+            type: message.role === 'assistant' ? 'output_text' : 'input_text',
+            text,
+          },
+        ],
+      })
+    }
+
+    if (message.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type !== 'tool_use') continue
+        input.push({
+          type: 'function_call',
+          call_id: block.id,
+          name: block.name,
+          arguments: jsonStringify(block.input ?? {}),
+        })
+      }
+    }
+
+    if (message.role === 'user') {
+      for (const block of message.content) {
+        if (block.type !== 'tool_result') continue
+        input.push({
+          type: 'function_call_output',
+          call_id: block.tool_use_id,
+          output:
+            typeof block.content === 'string'
+              ? block.content
+              : jsonStringify(block.content),
+        })
+      }
+    }
+  }
+
+  return input
+}
+
+function mapToolUnionToOpenAIFunction(
+  tool: Anthropic.Beta.Messages.BetaToolUnion,
+): Record<string, unknown> {
+  const typedTool = tool as Anthropic.Tool & { input_schema?: unknown }
+  return {
+    type: 'function',
+    name: typedTool.name,
+    description: typedTool.description,
+    parameters:
+      typedTool.input_schema && typeof typedTool.input_schema === 'object'
+        ? typedTool.input_schema
+        : {},
+  }
+}
+
+function roughOpenAIResponsesTokenCount(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  const normalizedMessages = stripToolSearchFieldsFromMessages(messages)
+  const textTokens = normalizedMessages.reduce((total, message) => {
+    if (typeof message.content === 'string') {
+      return total + roughTokenCountEstimation(message.content)
+    }
+    return (
+      total +
+      roughTokenCountEstimation(jsonStringify(message.content))
+    )
+  }, 0)
+
+  const toolTokens =
+    tools.length > 0 ? roughTokenCountEstimation(jsonStringify(tools)) : 0
+  return textTokens + toolTokens
+}
+
+async function countMessagesTokensWithOpenAIResponses(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): Promise<number | null> {
+  const normalizedMessages = stripToolSearchFieldsFromMessages(messages)
+  const input = translateMessagesToResponsesInput(normalizedMessages)
+  const request: Record<string, unknown> = {
+    model: resolveOpenAIModel(getMainLoopModel()),
+    input: input.length > 0 ? input : 'count',
+  }
+
+  if (tools.length > 0) {
+    request.tools = tools.map(mapToolUnionToOpenAIFunction)
+  }
+
+  const response = await fetchOpenAIJson<OpenAIInputTokenCountResponse>(
+    '/responses/input_tokens',
+    {
+      method: 'POST',
+      body: request,
+    },
+  )
+
+  return typeof response.input_tokens === 'number'
+    ? response.input_tokens
+    : null
+}
+
 export async function countTokensWithAPI(
   content: string,
 ): Promise<number | null> {
@@ -141,6 +305,17 @@ export async function countMessagesTokensWithAPI(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return withTokenCountVCR(messages, tools, async () => {
+      try {
+        return await countMessagesTokensWithOpenAIResponses(messages, tools)
+      } catch (error) {
+        logError(error)
+        return roughOpenAIResponsesTokenCount(messages, tools)
+      }
+    })
+  }
+
   return withTokenCountVCR(messages, tools, async () => {
     try {
       const model = getMainLoopModel()
@@ -252,6 +427,10 @@ export async function countTokensViaHaikuFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
+  if (isOpenAIResponsesBackendEnabled()) {
+    return roughOpenAIResponsesTokenCount(messages, tools)
+  }
+
   // Check if messages contain thinking blocks
   const containsThinking = hasThinkingBlocks(messages)
 

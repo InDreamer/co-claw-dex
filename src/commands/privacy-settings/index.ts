@@ -1,4 +1,5 @@
 import type { Command } from '../../commands.js'
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
 import { isConsumerSubscriber } from '../../utils/auth.js'
 
 const privacySettings = {
@@ -6,7 +7,7 @@ const privacySettings = {
   name: 'privacy-settings',
   description: 'View and update your privacy settings',
   isEnabled: () => {
-    return isConsumerSubscriber()
+    return !isOpenAIResponsesBackendEnabled() && isConsumerSubscriber()
   },
   load: () => import('./privacy-settings.js'),
 } satisfies Command
