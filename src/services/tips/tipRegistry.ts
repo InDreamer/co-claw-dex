@@ -521,7 +521,7 @@ const externalTips: Tip[] = [
         'off' | 'copy_a' | 'copy_b'
       >('tengu_tide_elm', 'off')
       return variant === 'copy_b'
-        ? `Use ${cmd} for better one-shot answers. Claude thinks it through first.`
+        ? `Use ${cmd} for better one-shot answers. The model spends more time reasoning first.`
         : `Working on something tricky? ${cmd} gives better first answers`
     },
     cooldownSessions: 3,
@@ -533,7 +533,8 @@ const externalTips: Tip[] = [
       }
       if (getEffortEnvOverride() !== undefined) return false
       const persisted = getInitialSettings().effortLevel
-      if (persisted === 'high' || persisted === 'max') return false
+      if (persisted === 'high' || persisted === 'xhigh' || persisted === 'max')
+        return false
       return (
         getFeatureValue_CACHED_MAY_BE_STALE<'off' | 'copy_a' | 'copy_b'>(
           'tengu_tide_elm',

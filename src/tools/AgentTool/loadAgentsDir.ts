@@ -16,6 +16,7 @@ import type { ToolUseContext } from '../../Tool.js'
 import { logForDebugging } from '../../utils/debug.js'
 import {
   EFFORT_LEVELS,
+  LEGACY_EFFORT_LEVELS,
   type EffortValue,
   parseEffortValue,
 } from '../../utils/effort.js'
@@ -82,7 +83,7 @@ const AgentJsonSchema = lazySchema(() =>
       .min(1, 'Model cannot be empty')
       .transform(m => (m.toLowerCase() === 'inherit' ? 'inherit' : m))
       .optional(),
-    effort: z.union([z.enum(EFFORT_LEVELS), z.number().int()]).optional(),
+    effort: z.union([z.enum(LEGACY_EFFORT_LEVELS), z.number().int()]).optional(),
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     mcpServers: z.array(AgentMcpServerSpecSchema()).optional(),
     hooks: HooksSchema().optional(),

@@ -1,5 +1,6 @@
 import type { AppState } from '../../state/AppState.js'
 import { logForDebugging } from '../debug.js'
+import { parseEffortValue } from '../effort.js'
 import { updateHooksConfigSnapshot } from '../hooks/hooksConfigSnapshot.js'
 import {
   createDisabledBypassPermissionsContext,
@@ -74,19 +75,31 @@ export function applySettingsChange(
     const prevEffort = prev.settings.effortLevel
     const newEffort = newSettings.effortLevel
     const effortChanged = prevEffort !== newEffort
+    const prevParsedEffort = parseEffortValue(prevEffort)
+    const parsedEffort = parseEffortValue(newEffort)
+    const previousNormalizedEffort =
+      typeof prevParsedEffort === 'string' ? prevParsedEffort : undefined
+    const normalizedEffort =
+      typeof parsedEffort === 'string' ? parsedEffort : undefined
+    const shouldClearEffortValue =
+      effortChanged &&
+      normalizedEffort === undefined &&
+      prev.effortValue === previousNormalizedEffort
 
     return {
       ...prev,
       settings: newSettings,
       toolPermissionContext: newContext,
-      // Only propagate a defined new value — when the disk key is absent
-      // (e.g. /effort max for non-ants writes undefined; --effort CLI flag),
-      // prev.settings.effortLevel can be stale (internal writes suppress the
-      // watcher that would resync AppState.settings), so effortChanged would
-      // be true and we'd wipe a session-scoped value held in effortValue.
-      ...(effortChanged && newEffort !== undefined
-        ? { effortValue: newEffort }
-        : {}),
+      // Propagate a defined disk value immediately. When the disk key is
+      // removed, only clear AppState.effortValue if it was previously sourced
+      // from the same persisted setting; this preserves session-scoped
+      // overrides such as --effort while still letting external settings edits
+      // clear the active effort when appropriate.
+      ...(effortChanged && normalizedEffort !== undefined
+        ? { effortValue: normalizedEffort }
+        : shouldClearEffortValue
+          ? { effortValue: undefined }
+          : {}),
     }
   })
 }

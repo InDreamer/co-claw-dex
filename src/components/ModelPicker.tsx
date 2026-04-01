@@ -2,13 +2,15 @@ import { c as _c } from "react/compiler-runtime";
 import capitalize from 'lodash-es/capitalize.js';
 import * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
+import { BRAND_NAME } from 'src/constants/brand.js';
 import { useExitOnCtrlCDWithKeybindings } from 'src/hooks/useExitOnCtrlCDWithKeybindings.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
+import { isOpenAIResponsesBackendEnabled } from 'src/services/modelBackend/openaiCodexConfig.js';
 import { FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled } from 'src/utils/fastMode.js';
 import { Box, Text } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
-import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
+import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsXHighEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
@@ -149,7 +151,7 @@ export function ModelPicker(t0) {
   if ($[20] !== focusedValue) {
     const focusedModel = resolveOptionModel(focusedValue);
     focusedSupportsEffort = focusedModel ? modelSupportsEffort(focusedModel) : false;
-    t8 = focusedModel ? modelSupportsMaxEffort(focusedModel) : false;
+    t8 = focusedModel ? modelSupportsXHighEffort(focusedModel) : false;
     $[20] = focusedValue;
     $[21] = focusedSupportsEffort;
     $[22] = t8;
@@ -157,7 +159,7 @@ export function ModelPicker(t0) {
     focusedSupportsEffort = $[21];
     t8 = $[22];
   }
-  const focusedSupportsMax = t8;
+  const focusedSupportsXHigh = t8;
   let t9;
   if ($[23] !== focusedValue) {
     t9 = getDefaultEffortLevelForOption(focusedValue);
@@ -167,7 +169,7 @@ export function ModelPicker(t0) {
     t9 = $[24];
   }
   const focusedDefaultEffort = t9;
-  const displayEffort = effort === "max" && !focusedSupportsMax ? "high" : effort;
+  const displayEffort = (effort === "xhigh" && !focusedSupportsXHigh ? "high" : effort) ?? focusedDefaultEffort;
   let t10;
   if ($[25] !== effortValue || $[26] !== hasToggledEffort) {
     t10 = value => {
@@ -184,17 +186,17 @@ export function ModelPicker(t0) {
   }
   const handleFocus = t10;
   let t11;
-  if ($[28] !== focusedDefaultEffort || $[29] !== focusedSupportsEffort || $[30] !== focusedSupportsMax) {
+  if ($[28] !== focusedDefaultEffort || $[29] !== focusedSupportsEffort || $[30] !== focusedSupportsXHigh) {
     t11 = direction => {
       if (!focusedSupportsEffort) {
         return;
       }
-      setEffort(prev => cycleEffortLevel(prev ?? focusedDefaultEffort, direction, focusedSupportsMax));
+      setEffort(prev => cycleEffortLevel(prev ?? focusedDefaultEffort, direction, focusedSupportsXHigh));
       setHasToggledEffort(true);
     };
     $[28] = focusedDefaultEffort;
     $[29] = focusedSupportsEffort;
-    $[30] = focusedSupportsMax;
+    $[30] = focusedSupportsXHigh;
     $[31] = t11;
   } else {
     t11 = $[31];
@@ -265,7 +267,7 @@ export function ModelPicker(t0) {
   } else {
     t15 = $[41];
   }
-  const t16 = headerText ?? "Switch between Claude models. Applies to this session and future Claude Code sessions. For other/previous model names, specify with --model.";
+  const t16 = headerText ?? (isOpenAIResponsesBackendEnabled() ? `Switch between Codex models. Applies to this session and future ${BRAND_NAME} sessions. For other model names, specify with --model.` : "Switch between Claude models. Applies to this session and future Claude Code sessions. For other/previous model names, specify with --model.");
   let t17;
   if ($[42] !== t16) {
     t17 = <Text dimColor={true}>{t16}</Text>;
@@ -276,7 +278,7 @@ export function ModelPicker(t0) {
   }
   let t18;
   if ($[44] !== sessionModel) {
-    t18 = sessionModel && <Text dimColor={true}>Currently using {modelDisplayString(sessionModel)} for this session (set by plan mode). Selecting a model will undo this.</Text>;
+    t18 = sessionModel && <Text dimColor={true}>Currently using {modelDisplayString(sessionModel)} for this session (set by plan mode). Selecting a model will clear that override.</Text>;
     $[44] = sessionModel;
     $[45] = t18;
   } else {
@@ -325,7 +327,7 @@ export function ModelPicker(t0) {
   }
   let t24;
   if ($[62] !== displayEffort || $[63] !== focusedDefaultEffort || $[64] !== focusedModelName || $[65] !== focusedSupportsEffort) {
-    t24 = <Box marginBottom={1} flexDirection="column">{focusedSupportsEffort ? <Text dimColor={true}><EffortLevelIndicator effort={displayEffort} />{" "}{capitalize(displayEffort)} effort{displayEffort === focusedDefaultEffort ? " (default)" : ""}{" "}<Text color="subtle">← → to adjust</Text></Text> : <Text color="subtle"><EffortLevelIndicator effort={undefined} /> Effort not supported{focusedModelName ? ` for ${focusedModelName}` : ""}</Text>}</Box>;
+    t24 = <Box marginBottom={1} flexDirection="column">{focusedSupportsEffort ? <Text dimColor={true}><EffortLevelIndicator effort={displayEffort} />{" "}{formatEffortLabel(displayEffort)} effort{displayEffort === focusedDefaultEffort ? " (default)" : ""}{" "}<Text color="subtle">← → to adjust</Text></Text> : <Text color="subtle"><EffortLevelIndicator effort={undefined} /> Effort not supported{focusedModelName ? ` for ${focusedModelName}` : ""}</Text>}</Box>;
     $[62] = displayEffort;
     $[63] = focusedDefaultEffort;
     $[64] = focusedModelName;
@@ -428,9 +430,9 @@ function EffortLevelIndicator(t0) {
   }
   return t4;
 }
-function cycleEffortLevel(current: EffortLevel, direction: 'left' | 'right', includeMax: boolean): EffortLevel {
-  const levels: EffortLevel[] = includeMax ? ['low', 'medium', 'high', 'max'] : ['low', 'medium', 'high'];
-  // If the current level isn't in the cycle (e.g. 'max' after switching to a
+function cycleEffortLevel(current: EffortLevel, direction: 'left' | 'right', includeXHigh: boolean): EffortLevel {
+  const levels: EffortLevel[] = includeXHigh ? ['none', 'low', 'medium', 'high', 'xhigh'] : ['none', 'low', 'medium', 'high'];
+  // If the current level isn't in the cycle (e.g. 'xhigh' after switching to a
   // non-Opus model), clamp to 'high'.
   const idx = levels.indexOf(current);
   const currentIndex = idx !== -1 ? idx : levels.indexOf('high');
@@ -439,6 +441,11 @@ function cycleEffortLevel(current: EffortLevel, direction: 'left' | 'right', inc
   } else {
     return levels[(currentIndex - 1 + levels.length) % levels.length]!;
   }
+}
+function formatEffortLabel(level?: EffortLevel): string {
+  if (!level) return 'Low';
+  if (level === 'xhigh') return 'XHigh';
+  return capitalize(level);
 }
 function getDefaultEffortLevelForOption(value?: string): EffortLevel {
   const resolved = resolveOptionModel(value) ?? getDefaultMainLoopModel();
