@@ -10,69 +10,62 @@ import type { SetAppState } from '../messageQueueManager.js'
 import { hasSuccessfulToolCall } from '../messages.js'
 import { addFunctionHook } from './sessionHooks.js'
 
-// Keep hook verification output strict-compatible for OpenAI structured output
-// paths: both branches require every field, and the success branch encodes the
-// absence of a blocking reason as `null` instead of an omitted property.
-const HookResponseOkSchema = lazySchema(() =>
-  z.strictObject({
-    ok: z.literal(true).describe('Whether the condition was met'),
-    reason: z
-      .null()
-      .describe('Null when the condition was met and no blocking reason exists'),
-  }),
-)
-
-const HookResponseBlockedSchema = lazySchema(() =>
-  z.strictObject({
-    ok: z.literal(false).describe('Whether the condition was met'),
-    reason: z.string().describe('Reason, if the condition was not met'),
-  }),
-)
-
 /**
  * Schema for hook responses (shared by prompt and agent hooks)
  */
 export const hookResponseSchema = lazySchema(() =>
-  z.union([HookResponseOkSchema(), HookResponseBlockedSchema()]),
+  z
+    .strictObject({
+      ok: z.boolean().describe('Whether the condition was met'),
+      reason: z
+        .string()
+        .nullable()
+        .describe(
+          'Null when the condition was met; otherwise a string describing why it failed',
+        ),
+    })
+    .superRefine((value, ctx) => {
+      if (value.ok && value.reason !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'reason must be null when ok is true',
+          path: ['reason'],
+        })
+      }
+
+      if (!value.ok && value.reason === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'reason must be a string when ok is false',
+          path: ['reason'],
+        })
+      }
+    }),
 )
 
 export function getHookResponseJsonSchema(): Tool['inputJSONSchema'] {
   return {
-    anyOf: [
-      {
-        type: 'object',
-        properties: {
-          ok: {
-            type: 'boolean',
-            const: true,
-            description: 'Whether the condition was met',
-          },
-          reason: {
+    type: 'object',
+    properties: {
+      ok: {
+        type: 'boolean',
+        description: 'Whether the condition was met',
+      },
+      reason: {
+        anyOf: [
+          {
             type: 'null',
-            description:
-              'Null when the condition was met and no blocking reason exists',
           },
-        },
-        required: ['ok', 'reason'],
-        additionalProperties: false,
-      },
-      {
-        type: 'object',
-        properties: {
-          ok: {
-            type: 'boolean',
-            const: false,
-            description: 'Whether the condition was met',
-          },
-          reason: {
+          {
             type: 'string',
-            description: 'Reason, if the condition was not met',
           },
-        },
-        required: ['ok', 'reason'],
-        additionalProperties: false,
+        ],
+        description:
+          'Null when the condition was met; otherwise a string describing why it failed',
       },
-    ],
+    },
+    required: ['ok', 'reason'],
+    additionalProperties: false,
   }
 }
 

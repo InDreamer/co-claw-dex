@@ -253,6 +253,110 @@ describe('runOpenAIResponses', () => {
     )
   })
 
+  test('resolves native output_item.done blocks via item_id when output_index is missing', async () => {
+    const entries = await collectResponsesStream([
+      { type: 'response.created' },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item_id: 'msg_0',
+        item: {
+          type: 'message',
+          id: 'msg_0',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.content_part.added',
+        output_index: 0,
+        item_id: 'msg_0',
+        content_index: 0,
+        part: {
+          type: 'output_text',
+          text: '',
+        },
+      },
+      {
+        type: 'response.output_text.delta',
+        output_index: 0,
+        item_id: 'msg_0',
+        content_index: 0,
+        delta: 'Primary text.',
+      },
+      {
+        type: 'response.output_item.added',
+        output_index: 1,
+        item_id: 'ws_item',
+        item: {
+          type: 'web_search_call',
+          id: 'ws_item',
+          status: 'completed',
+          action: {
+            type: 'search',
+            query: 'adapter fit',
+            sources: [{ title: 'Docs' }],
+          },
+        },
+      },
+      {
+        type: 'response.output_item.done',
+        item_id: 'ws_item',
+        item: {
+          type: 'web_search_call',
+          id: 'ws_item',
+          status: 'completed',
+          action: {
+            type: 'search',
+            query: 'adapter fit',
+            sources: [{ title: 'Docs' }],
+          },
+        },
+      },
+      {
+        type: 'response.output_item.done',
+        item_id: 'msg_0',
+        item: {
+          type: 'message',
+          id: 'msg_0',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_item_id_done',
+          output: [
+            {
+              type: 'message',
+              id: 'msg_0',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Primary text.' }],
+            },
+            {
+              type: 'web_search_call',
+              id: 'ws_item',
+              status: 'completed',
+              action: {
+                type: 'search',
+                query: 'adapter fit',
+                sources: [{ title: 'Docs' }],
+              },
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        },
+      },
+    ])
+
+    const streamedText = getStreamedText(entries)
+    expect(streamedText).toContain('Primary text.')
+    expect(streamedText).toContain('[OpenAI native item: web_search_call]')
+    expect(streamedText).toContain('query: adapter fit')
+  })
+
   test('streams output audio transcripts into text deltas', async () => {
     const entries = await collectResponsesStream([
       { type: 'response.created' },
@@ -325,6 +429,75 @@ describe('runOpenAIResponses', () => {
 
     expect(getStreamedText(entries)).toContain('Hello from audio')
     expect(getAssistantTexts(entries).join('\n')).toContain('Hello from audio')
+  })
+
+  test('streams transcript text from output_audio_transcript.done when no deltas arrived', async () => {
+    const entries = await collectResponsesStream([
+      { type: 'response.created' },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item_id: 'msg_audio_done',
+        item: {
+          type: 'message',
+          id: 'msg_audio_done',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.content_part.added',
+        output_index: 0,
+        item_id: 'msg_audio_done',
+        content_index: 0,
+        part: {
+          type: 'output_audio',
+        },
+      },
+      {
+        type: 'response.output_audio_transcript.done',
+        output_index: 0,
+        item_id: 'msg_audio_done',
+        content_index: 0,
+        transcript: 'Transcript delivered on done.',
+      },
+      {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          type: 'message',
+          id: 'msg_audio_done',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_audio_done',
+          output: [
+            {
+              type: 'message',
+              id: 'msg_audio_done',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'output_audio',
+                  transcript: 'Transcript delivered on done.',
+                },
+              ],
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        },
+      },
+    ])
+
+    expect(getStreamedText(entries)).toContain('Transcript delivered on done.')
+    expect(getAssistantTexts(entries).join('\n')).toContain(
+      'Transcript delivered on done.',
+    )
   })
 
   test('summarizes image generation calls without streaming image payloads', async () => {

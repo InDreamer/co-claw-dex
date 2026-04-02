@@ -25,6 +25,7 @@ import { fileHistoryEnabled, fileHistoryTrackEdit } from '../../utils/fileHistor
 import { truncate } from '../../utils/format.js';
 import { getFsImplementation } from '../../utils/fsOperations.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { nullToUndefined } from '../../utils/nullToUndefined.js';
 import { expandPath } from '../../utils/path.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { maybeRecordPluginHint } from '../../utils/plugins/hintRecommendation.js';
@@ -226,8 +227,8 @@ const isBackgroundTasksDisabled =
 isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS);
 const fullInputSchema = lazySchema(() => z.strictObject({
   command: z.string().describe('The command to execute'),
-  timeout: semanticNumber(z.number().optional()).describe(`Optional timeout in milliseconds (max ${getMaxTimeoutMs()})`),
-  description: z.string().optional().describe(`Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.
+  timeout: nullToUndefined(semanticNumber(z.number().optional())).describe(`Optional timeout in milliseconds (max ${getMaxTimeoutMs()})`),
+  description: nullToUndefined(z.string().optional()).describe(`Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.
 
 For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):
 - ls → "List files in current directory"
@@ -238,8 +239,8 @@ For commands that are harder to parse at a glance (piped commands, obscure flags
 - find . -name "*.tmp" -exec rm {} \\; → "Find and delete all .tmp files recursively"
 - git reset --hard origin/main → "Discard all local changes and match remote main"
 - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements"`),
-  run_in_background: semanticBoolean(z.boolean().optional()).describe(`Set to true to run this command in the background. Use Read to read the output later.`),
-  dangerouslyDisableSandbox: semanticBoolean(z.boolean().optional()).describe('Set this to true to dangerously override sandbox mode and run commands without sandboxing.'),
+  run_in_background: nullToUndefined(semanticBoolean(z.boolean().optional())).describe(`Set to true to run this command in the background. Use Read to read the output later.`),
+  dangerouslyDisableSandbox: nullToUndefined(semanticBoolean(z.boolean().optional())).describe('Set this to true to dangerously override sandbox mode and run commands without sandboxing.'),
   _simulatedSedEdit: z.object({
     filePath: z.string(),
     newContent: z.string()

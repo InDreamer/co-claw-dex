@@ -53,6 +53,7 @@ import { logError } from '../../utils/log.js'
 import { isAutoMemFile } from '../../utils/memoryFileDetection.js'
 import { createUserMessage } from '../../utils/messages.js'
 import { getCanonicalName, getMainLoopModel } from '../../utils/model/model.js'
+import { nullToUndefined } from '../../utils/nullToUndefined.js'
 import {
   mapNotebookCellsToToolResult,
   readNotebook,
@@ -227,18 +228,19 @@ function detectSessionFileType(
 const inputSchema = lazySchema(() =>
   z.strictObject({
     file_path: z.string().describe('The absolute path to the file to read'),
-    offset: semanticNumber(z.number().int().nonnegative().optional()).describe(
+    offset: nullToUndefined(
+      semanticNumber(z.number().int().nonnegative().optional()),
+    ).describe(
       'The line number to start reading from. Only provide if the file is too large to read at once',
     ),
-    limit: semanticNumber(z.number().int().positive().optional()).describe(
+    limit: nullToUndefined(
+      semanticNumber(z.number().int().positive().optional()),
+    ).describe(
       'The number of lines to read. Only provide if the file is too large to read at once.',
     ),
-    pages: z
-      .string()
-      .optional()
-      .describe(
-        `Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum ${PDF_MAX_PAGES_PER_READ} pages per request.`,
-      ),
+    pages: nullToUndefined(z.string().optional()).describe(
+      `Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum ${PDF_MAX_PAGES_PER_READ} pages per request.`,
+    ),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>

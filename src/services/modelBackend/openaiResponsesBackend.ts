@@ -276,6 +276,22 @@ function emitTextStreamEvent(
     : []
 }
 
+function getStreamContentPartKey(
+  event: {
+    content_index?: number
+    item_id?: string
+    output_index?: number
+  },
+  outputIndexes: Map<string, number>,
+): string {
+  const contentIndex = event.content_index ?? 0
+  if (event.item_id) {
+    return buildOpenAIContentPartKey(event.item_id, contentIndex)
+  }
+
+  return `stream:${getOutputIndexForStreamEvent(event, outputIndexes)}:${contentIndex}`
+}
+
 function createAssistantMessagesFromResponse(
   response: OpenAIResponse,
   model: string,
@@ -714,6 +730,7 @@ export async function* runOpenAIResponses(
     const startedThinkingBlockIndexes = new Set<number>()
     const openToolUseBlockIndexes = new Set<number>()
     const customToolInputStreamedIndexes = new Set<number>()
+    const audioTranscriptStreamedParts = new Set<string>()
     const reasoningSummaryPartCounts = new Map<number, number>()
     const reasoningSummarySeenIndexes = new Set<number>()
     let startedAssistantMessage = false
@@ -821,6 +838,9 @@ export async function* runOpenAIResponses(
           const text = event.delta || ''
           if (!text) break
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          audioTranscriptStreamedParts.add(
+            getStreamContentPartKey(event, outputIndexes),
+          )
           if (!startedTextBlockIndexes.has(index)) {
             startedTextBlockIndexes.add(index)
             yield createTextBlockStartStreamEvent(index)
@@ -828,8 +848,23 @@ export async function* runOpenAIResponses(
           yield createTextDeltaStreamEvent(index, text)
           break
         }
-        case 'response.output_audio_transcript.done':
+        case 'response.output_audio_transcript.done': {
+          const text = event.transcript || ''
+          if (!text) break
+          const key = getStreamContentPartKey(event, outputIndexes)
+          if (audioTranscriptStreamedParts.has(key)) {
+            break
+          }
+
+          audioTranscriptStreamedParts.add(key)
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          if (!startedTextBlockIndexes.has(index)) {
+            startedTextBlockIndexes.add(index)
+            yield createTextBlockStartStreamEvent(index)
+          }
+          yield createTextDeltaStreamEvent(index, text)
           break
+        }
         case 'response.refusal.delta': {
           const text = event.delta || ''
           if (!text) break
@@ -1002,7 +1037,7 @@ export async function* runOpenAIResponses(
           break
         }
         case 'response.output_item.done': {
-          const index = event.output_index ?? 0
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
           const itemType = event.item?.type ?? outputItemTypes.get(index)
           if (itemType === 'message') {
             if (startedTextBlockIndexes.delete(index)) {

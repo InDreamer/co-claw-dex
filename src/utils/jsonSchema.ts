@@ -47,6 +47,18 @@ function findStrictJsonSchemaIncompatibility(
   schema: JsonSchema,
   path: string,
 ): string | undefined {
+  if (path === '$') {
+    const isRootObject =
+      schemaTypeIncludes(schema, 'object') ||
+      isJsonSchema(schema.properties)
+    if (!isRootObject) {
+      return '$ must set type: object at the schema root'
+    }
+    if (Array.isArray(schema.anyOf)) {
+      return '$ must not use anyOf at the schema root'
+    }
+  }
+
   const properties = isJsonSchema(schema.properties) ? schema.properties : undefined
   const isObjectSchema = schemaTypeIncludes(schema, 'object') || properties !== undefined
 
