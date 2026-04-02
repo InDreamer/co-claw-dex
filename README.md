@@ -16,44 +16,135 @@ source_of_truth:
 
 # co-claw-dex
 
-`co-claw-dex` is a locally runnable Claude Code-style coding agent fork that swaps the original model provider boundary for an OpenAI/Codex-compatible Responses backend.
+`co-claw-dex` is a Claude Code-style coding agent fork distributed as the `clawdex` CLI.
 
-The goal is not to redesign the CLI. The goal is to preserve the terminal UX, tool system, permission model, and agent flow while replacing the model runtime with an OpenAI-compatible backend.
+It keeps the terminal UX, tool system, permission model, and agent flow largely intact, but swaps the original model boundary for an OpenAI/Codex-compatible Responses backend.
 
-The canonical implementation truth now lives in the governed `docs/` tree. Historical research material is preserved separately and should not be used as the implementation source of truth.
+## What You Get
 
-## Canonical Docs
+- `clawdex` as the primary end-user command
+- one-command install for macOS, Linux, and Windows
+- portable user-space install with no `sudo`
+- OpenAI-compatible configuration through `OPENAI_API_KEY`, `~/.codex/auth.json`, and `~/.codex/config.toml`
+- compatibility with proxy providers that expose an OpenAI-compatible Responses API
 
-- `docs/INDEX.md` is the canonical documentation router.
-- `docs/implementation/hybrid-native-implementation-plan.md` is the implementation source of truth for the next coding phase.
-- Archived research notes under `research/` remain useful as historical input, but implementation decisions are now consolidated into the docs tree.
+## One-Command Install
 
-## Highlights
+macOS and Linux:
 
-- Preserves the Claude Code-style terminal experience instead of rebuilding the agent stack from scratch
-- Uses an OpenAI/Codex-compatible Responses backend as the default model runtime
-- Reuses Codex-style local auth and config sources such as `OPENAI_API_KEY`, `~/.codex/auth.json`, and `~/.codex/config.toml`
-- Translates Responses streaming events back into the existing internal stream format so the CLI behavior stays familiar
-- Translates function calling into the existing tool-use flow, including stateless replay for providers that do not reliably support `previous_response_id`
-- Keeps legacy Claude-style model aliases for compatibility with existing workflows
-- Disables official Anthropic install/update flows for this fork distribution
-- Ships with source-first helper scripts for build, smoke testing, local activation, and rollback
+```bash
+curl -fsSL https://github.com/InDreamer/co-claw-dex/releases/latest/download/install.sh | bash
+```
 
-## Status
+macOS and Linux with API key bootstrap:
 
-This repository now builds and runs as a usable coding agent platform.
+```bash
+curl -fsSL https://github.com/InDreamer/co-claw-dex/releases/latest/download/install.sh | OPENAI_API_KEY=sk-... CLAWDEX_MODEL=gpt-5.4 bash
+```
 
-What is already migrated:
+Windows PowerShell:
 
-- OpenAI/Codex-compatible Responses backend is the default model path
-- Credentials are loaded from `OPENAI_API_KEY` or `~/.codex/auth.json`
-- Provider settings are loaded from `~/.codex/config.toml`
-- Responses streaming is translated into the existing internal message stream
-- Function calling is translated into the existing internal tool-use flow
-- Legacy Claude-style model aliases are preserved for compatibility
-- Official Anthropic install/update release-channel flows are disabled for this fork
+```powershell
+irm https://github.com/InDreamer/co-claw-dex/releases/latest/download/install.ps1 | iex
+```
 
-## Quick Start
+Alternative npm install for environments that already manage Node:
+
+```bash
+npm install -g @indreamer/clawdex
+```
+
+The packaged installer:
+
+- installs a portable Node runtime under the user home directory
+- installs the packaged `clawdex` build without requiring `sudo`
+- creates a `clawdex` launcher and a `claude-codex` compatibility launcher
+- optionally writes `~/.codex/config.toml` and `~/.codex/auth.json`
+
+## First Run
+
+Check the configured backend and credentials:
+
+```bash
+clawdex auth status --text
+```
+
+Run a minimal prompt:
+
+```bash
+clawdex -p "Reply with exactly: hello"
+```
+
+If no credential is configured yet, either set `OPENAI_API_KEY` in the shell or write it to `~/.codex/auth.json`.
+
+## Installer Overrides
+
+Supported installer environment variables:
+
+- `OPENAI_API_KEY`
+- `CLAWDEX_BASE_URL`
+- `CLAWDEX_MODEL`
+- `CLAWDEX_INSTALL_ROOT`
+- `CLAWDEX_BIN_DIR`
+- `CLAWDEX_CODEX_HOME`
+
+Useful script flags:
+
+- `--skip-config`
+- `--force-config`
+- `--no-path`
+- `--api-key <key>`
+- `--base-url <url>`
+- `--model <model>`
+
+## Configuration
+
+Expected credential sources:
+
+- `OPENAI_API_KEY`
+- `~/.codex/auth.json`
+
+Expected provider settings source:
+
+- `~/.codex/config.toml`
+
+Minimal provider config example:
+
+```toml
+model_provider = "openai"
+model = "gpt-5.4"
+disable_response_storage = true
+
+[model_providers.openai]
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+```
+
+Typical customizations:
+
+- point `base_url` at an OpenAI-compatible gateway or proxy
+- change the default model
+- keep response storage disabled for stateless provider compatibility
+
+## Release Model
+
+Tagged releases are the distribution path for end users.
+
+Each release publishes:
+
+- `clawdex.tgz`
+- `install.sh`
+- `install.ps1`
+- `SHA256SUMS`
+
+Release flow:
+
+1. Update the package version.
+2. Push a tag like `v2.1.88`.
+3. GitHub Actions builds the package and uploads the installer assets to the release.
+4. If `NPM_TOKEN` is configured in GitHub Actions secrets, the package is also published to npm.
+
+## Local Development
 
 ```bash
 npm install
@@ -81,36 +172,10 @@ One-command smoke check:
 npm run smoke
 ```
 
-## Credential Sources
+Build release assets locally:
 
-This fork reuses Codex-style local configuration.
-
-Expected credential sources:
-
-- `OPENAI_API_KEY`
-- `~/.codex/auth.json`
-
-Expected provider settings source:
-
-- `~/.codex/config.toml`
-
-Typical values used by this fork:
-
-- model provider base URL
-- default model
-- wire API mode
-- response storage preference
-
-Minimal provider config example:
-
-```toml
-model_provider = "openai"
-model = "gpt-5.4"
-disable_response_storage = true
-
-[model_providers.openai]
-base_url = "https://api.openai.com/v1"
-wire_api = "responses"
+```bash
+npm run pack:release
 ```
 
 ## Architecture
@@ -127,11 +192,18 @@ Instead of rewriting the agent stack, the fork translates at the provider bounda
 
 This means most of the original CLI, Hermes-style component behavior, and tool plumbing can remain unchanged while the underlying model runtime is replaced.
 
-## Notes
+## Maintainer Notes
 
 - `cli.js` at the repo root is a thin launcher for the built artifact in `dist/cli.js`
-- This fork is intended to be run from source, not upgraded from official Anthropic distribution channels
-- `claude update` and `claude install` are intentionally disabled from pulling official Anthropic releases in this fork
+- This fork can now be distributed as `clawdex`, but it is still not upgraded from official Anthropic distribution channels
+- `install` and `update` are intentionally disabled from pulling official Anthropic releases in this fork
+- The canonical implementation truth now lives in the governed `docs/` tree
+- Historical material under `research/` is preserved for reference, not as the implementation source of truth
+
+## Canonical Docs
+
+- `docs/INDEX.md` is the documentation router
+- `docs/implementation/hybrid-native-implementation-plan.md` is the current implementation source of truth
 
 ## Origin
 

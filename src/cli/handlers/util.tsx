@@ -8,6 +8,7 @@ import { c as _c } from "react/compiler-runtime";
 import { cwd } from 'process';
 import React from 'react';
 import { WelcomeV2 } from '../../components/LogoV2/WelcomeV2.js';
+import { formatCliCommand } from '../../constants/cli.js';
 import { useManagePlugins } from '../../hooks/useManagePlugins.js';
 import type { Root } from '../../ink.js';
 import { Box, Text } from '../../ink.js';
@@ -97,7 +98,7 @@ export async function installHandler(target: string | undefined, options: {
   if (IS_FORK_DISTRIBUTION) {
     process.stdout.write(
       `${FORK_OFFICIAL_CHANNELS_DISABLED_MESSAGE}\n` +
-        'Run this workspace directly, or point your shell launcher at this checkout instead of installing the official native build.\n',
+        `Run this workspace directly, or point your shell launcher at this checkout instead of installing the official native build. The packaged installer exposes ${formatCliCommand()} for end users.\n`,
     );
     process.exit(0);
   }

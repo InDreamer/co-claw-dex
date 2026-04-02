@@ -1,16 +1,17 @@
 {
-  "name": "@anthropic-ai/claude-code",
+  "name": "@indreamer/clawdex",
   "version": "2.1.88",
   "bin": {
+    "clawdex": "cli.js",
     "claude": "cli.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "type": "module",
-  "author": "Anthropic <support@anthropic.com>",
+  "author": "InDreamer",
   "license": "SEE LICENSE IN README.md",
-  "description": "A Claude Code-style terminal coding agent platform wired to an OpenAI/Codex-compatible Responses backend.",
+  "description": "A Claude Code-style terminal coding agent platform distributed as clawdex and wired to an OpenAI/Codex-compatible Responses backend.",
   "homepage": "https://github.com/InDreamer/co-claw-dex",
   "repository": {
     "type": "git",
@@ -19,11 +20,21 @@
   "bugs": {
     "url": "https://github.com/InDreamer/co-claw-dex/issues"
   },
+  "files": [
+    "cli.js",
+    "dist/cli.js",
+    "dist/vendor",
+    "README.md",
+    "scripts/installers",
+    "stubs/claude-for-chrome-mcp"
+  ],
   "scripts": {
     "activate-cli": "bash scripts/activate-local-cli.sh",
     "bootstrap": "bash scripts/bootstrap.sh",
     "build": "bun run scripts/build.mjs",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist .release",
+    "pack:release": "node scripts/release-artifacts.mjs",
+    "prepack": "npm run build",
     "prepublishOnly": "node -e \"if (!process.env.AUTHORIZED) { console.error('ERROR: Direct publishing is not allowed.\\nPlease see the release workflow documentation to publish this package.'); process.exit(1); }\"",
     "restore-cli": "bash scripts/restore-official-cli.sh",
     "smoke": "node cli.js auth status --text && node cli.js -p \"Reply with exactly: hello\"",

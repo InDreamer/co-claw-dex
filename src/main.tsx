@@ -27,6 +27,7 @@ import pickBy from 'lodash-es/pickBy.js';
 import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { BRAND_NAME } from './constants/brand.js';
+import { formatCliCommand, getCliCommandName } from './constants/cli.js';
 import {
   FORK_DISTRIBUTION_NAME,
   IS_FORK_DISTRIBUTION,
@@ -278,7 +279,7 @@ function getSshDescription(): string {
 }
 
 function getSshUsageDescription(): string {
-  return `Usage: claude ssh <user@host | ssh-config-alias> [dir]\n\nRuns ${BRAND_NAME} on a remote Linux host. You don't need to install\nanything on the remote or run \`claude auth login\` there — the binary is\ndeployed over SSH and API auth tunnels back through your local machine.\n`
+  return `Usage: ${formatCliCommand('ssh <user@host | ssh-config-alias> [dir]')}\n\nRuns ${BRAND_NAME} on a remote Linux host. You don't need to install\nanything on the remote or run \`${formatCliCommand('auth login')}\` there — the binary is\ndeployed over SSH and API auth tunnels back through your local machine.\n`
 }
 
 function getOpenServerDescription(): string {
@@ -302,14 +303,14 @@ function getDoctorDescription(): string {
 
 function getInstallDescription(): string {
   if (IS_FORK_DISTRIBUTION) {
-    return `Install is disabled for the ${FORK_DISTRIBUTION_NAME}. This workspace should be run directly or linked locally as your active claude command.`
+    return `Install is disabled for the ${FORK_DISTRIBUTION_NAME}. Use the packaged clawdex installer, or link this workspace locally as your active ${getCliCommandName()} command.`
   }
   return `Install ${BRAND_NAME} native build. Use [target] to specify version (stable, latest, or specific version)`
 }
 
 function getUpdateDescription(): string {
   if (IS_FORK_DISTRIBUTION) {
-    return `Update is disabled for the ${FORK_DISTRIBUTION_NAME}. Rebuild this workspace locally instead of pulling from Anthropic release channels.`
+    return `Update is disabled for the ${FORK_DISTRIBUTION_NAME}. Re-run the packaged clawdex installer or rebuild this workspace locally instead of pulling from Anthropic release channels.`
   }
   return 'Check for updates and install if available'
 }
@@ -1073,7 +1074,7 @@ async function run(): Promise<CommanderCommand> {
     }
     profileCheckpoint('preAction_after_settings_sync');
   });
-  program.name('claude').description(`Claude Code - starts an interactive session by default, use -p/--print for non-interactive output`).argument('[prompt]', 'Your prompt', String)
+  program.name(getCliCommandName()).description(`${BRAND_NAME} - starts an interactive session by default, use -p/--print for non-interactive output`).argument('[prompt]', 'Your prompt', String)
   // Subcommands inherit helpOption via commander's copyInheritedSettings —
   // setting it once here covers mcp, plugin, auth, and all other subcommands.
   .helpOption('-h, --help', 'Display help for command').option('-d, --debug [filter]', 'Enable debug mode with optional category filtering (e.g., "api,hooks" or "!1p,!file")', (_value: string | true) => {
