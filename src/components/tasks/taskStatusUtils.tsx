@@ -87,8 +87,8 @@ export function describeTeammateActivity(t: DeepImmutable<InProcessTeammateTaskS
  * teammate (teammates are shown in the spinner tree instead).
  *
  * Uses the same task filtering as BackgroundTaskStatus: `isBackgroundTask()`
- * plus exclusion of panel-managed agent tasks for ants (those are shown
- * by CoordinatorTaskPanel).
+ * plus exclusion of panel-managed agent tasks (those are shown by
+ * CoordinatorTaskPanel).
  */
 export function shouldHideTasksFooter(tasks: {
   [taskId: string]: TaskState;
@@ -96,7 +96,7 @@ export function shouldHideTasksFooter(tasks: {
   if (!showSpinnerTree) return false;
   let hasVisibleTask = false;
   for (const t of Object.values(tasks) as TaskState[]) {
-    if (!isBackgroundTask(t) || "external" === 'ant' && isPanelAgentTask(t)) {
+    if (!isBackgroundTask(t) || isPanelAgentTask(t)) {
       continue;
     }
     hasVisibleTask = true;

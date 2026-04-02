@@ -147,7 +147,7 @@ function PromptInputFooter({
           <BridgeStatusIndicator bridgeSelected={bridgeSelected} />
         </Box>
       </Box>
-      {"external" === 'ant' && <CoordinatorTaskPanel />}
+      <CoordinatorTaskPanel />
     </>;
 }
 export default memo(PromptInputFooter);
