@@ -17,7 +17,6 @@ import { getAnthropicClient } from '../services/api/client.js'
 import {
   isOpenAIResponsesBackendEnabled,
   resolveOpenAIModel,
-  resolveOpenAIReasoningEffort,
 } from '../services/modelBackend/openaiCodexConfig.js'
 import { fetchOpenAIJson } from '../services/modelBackend/openaiApi.js'
 import {
@@ -36,6 +35,7 @@ import {
   normalizeJsonSchema,
 } from './jsonSchema.js'
 import { logForDebugging } from './debug.js'
+import { convertEffortValueToLevel, resolveAppliedEffort } from './effort.js'
 import { jsonStringify } from './slowOperations.js'
 import { normalizeModelStringForAPI } from './model/model.js'
 
@@ -421,8 +421,9 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
       request.temperature = temperature
     }
     if (thinking !== undefined && thinking !== false) {
+      const reasoningEffort = resolveAppliedEffort(normalizedModel, undefined)
       request.reasoning = {
-        effort: resolveOpenAIReasoningEffort() ?? 'medium',
+        effort: convertEffortValueToLevel(reasoningEffort ?? 'medium'),
       }
     }
     if (stop_sequences) {

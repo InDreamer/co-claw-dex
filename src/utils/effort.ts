@@ -400,6 +400,12 @@ function resolveCompatibleEffortForModel(
     }
     if (
       (effort === 'minimal' || effort === 'none') &&
+      openAIModel.supportedEffortLevels.includes('minimal')
+    ) {
+      return 'minimal'
+    }
+    if (
+      (effort === 'minimal' || effort === 'none') &&
       openAIModel.supportedEffortLevels.includes('low')
     ) {
       return 'low'
