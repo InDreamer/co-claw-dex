@@ -7,7 +7,10 @@ import {
   getOpenAICodexModelCatalogEntry,
   getOpenAICodexSupportedEffortLevels,
 } from '../services/modelBackend/openaiModelCatalog.js'
-import { resolveOpenAIReasoningEffort } from '../services/modelBackend/openaiCodexConfig.js'
+import {
+  isOpenAIResponsesBackendEnabled,
+  resolveOpenAIReasoningEffort,
+} from '../services/modelBackend/openaiCodexConfig.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -31,7 +34,7 @@ export type EffortValue = EffortLevel | number
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
 export function modelSupportsEffort(model: string): boolean {
   const m = model.toLowerCase()
-  if (getOpenAICodexModelCatalogEntry(model)) {
+  if (isOpenAIResponsesBackendEnabled() && getOpenAICodexModelCatalogEntry(model)) {
     return true
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
@@ -66,7 +69,9 @@ export function modelSupportsXHighEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  const openAIModel = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexModelCatalogEntry(model)
+    : undefined
   if (openAIModel) {
     return openAIModel.supportedEffortLevels.includes('xhigh')
   }
@@ -176,7 +181,9 @@ export function resolveAppliedEffort(
     return undefined
   }
   const providerDefaultEffort =
-    appStateEffortValue === undefined && getOpenAICodexModelCatalogEntry(model)
+    appStateEffortValue === undefined &&
+    isOpenAIResponsesBackendEnabled() &&
+    getOpenAICodexModelCatalogEntry(model)
       ? resolveOpenAIReasoningEffort()
       : undefined
   const resolved =
@@ -326,7 +333,9 @@ export function getDefaultEffortForModel(
     return undefined
   }
 
-  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  const openAIModel = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexModelCatalogEntry(model)
+    : undefined
   if (openAIModel) {
     return openAIModel.defaultEffort
   }
@@ -362,9 +371,14 @@ export function getDefaultEffortForModel(
 export function getSupportedEffortLevelsForModel(
   model: string,
 ): readonly EffortLevel[] {
-  const openAILevels = getOpenAICodexSupportedEffortLevels(model)
+  const openAILevels = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexSupportedEffortLevels(model)
+    : undefined
   if (openAILevels) {
     return openAILevels as readonly EffortLevel[]
+  }
+  if (!modelSupportsEffort(model)) {
+    return []
   }
   return modelSupportsXHighEffort(model)
     ? ['none', 'low', 'medium', 'high', 'xhigh']
@@ -387,7 +401,9 @@ function resolveCompatibleEffortForModel(
     return effort
   }
 
-  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  const openAIModel = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexModelCatalogEntry(model)
+    : undefined
   if (openAIModel) {
     if (openAIModel.supportedEffortLevels.includes(effort)) {
       return effort
