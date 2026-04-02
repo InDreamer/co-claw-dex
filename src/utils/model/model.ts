@@ -388,7 +388,9 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  const openAIModel = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexModelCatalogEntry(model)
+    : undefined
   if (openAIModel) {
     return openAIModel.label
   }
@@ -626,7 +628,9 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
 
-  const openAIModel = getOpenAICodexModelCatalogEntry(canonical)
+  const openAIModel = isOpenAIResponsesBackendEnabled()
+    ? getOpenAICodexModelCatalogEntry(canonical)
+    : undefined
   if (openAIModel) {
     return openAIModel.label
   }
