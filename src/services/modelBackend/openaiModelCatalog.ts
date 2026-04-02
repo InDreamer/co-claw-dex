@@ -137,6 +137,10 @@ export function normalizeOpenAICompatibleModel(
     return undefined
   }
 
+  if (normalized.startsWith('claude')) {
+    return undefined
+  }
+
   if (isKnownOpenAICodexModel(normalized)) {
     return normalized
   }
@@ -144,10 +148,6 @@ export function normalizeOpenAICompatibleModel(
   const legacyFamily = resolveLegacyOpenAIModelFamily(normalized)
   if (legacyFamily) {
     return legacyFamily
-  }
-
-  if (normalized.startsWith('claude')) {
-    return undefined
   }
 
   return model?.trim()

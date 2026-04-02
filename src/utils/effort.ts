@@ -419,6 +419,9 @@ function resolveCompatibleEffortForModel(
     return openAIModel.defaultEffort
   }
 
+  if (effort === 'minimal') {
+    return 'low'
+  }
   if (effort === 'xhigh' && !modelSupportsXHighEffort(model)) {
     return 'high'
   }

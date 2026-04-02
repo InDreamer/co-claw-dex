@@ -23,4 +23,16 @@ describe('effort compatibility', () => {
       'high',
     )
   })
+
+  test('maps minimal to low on non-OpenAI models that do not expose minimal', () => {
+    expect(
+      getCompatibleEffortLevelForModel(
+        'claude-sonnet-4-6-20250929',
+        'minimal',
+      ),
+    ).toBe('low')
+    expect(resolveAppliedEffort('claude-sonnet-4-6-20250929', 'minimal')).toBe(
+      'low',
+    )
+  })
 })
