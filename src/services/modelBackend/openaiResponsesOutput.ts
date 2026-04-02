@@ -184,6 +184,14 @@ function readString(value: unknown): string | undefined {
     : undefined
 }
 
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function readStringLength(value: unknown): number | undefined {
+  return typeof value === 'string' && value.length > 0 ? value.length : undefined
+}
+
 function countArray(value: unknown): number | undefined {
   return Array.isArray(value) ? value.length : undefined
 }
@@ -350,6 +358,7 @@ const displayOnlyNativeItemTypes = new Set([
   'computer_call',
   'computer_call_output',
   'file_search_call',
+  'image_generation_call',
   'mcp_call',
   'mcp_list_tools',
   'mcp_tool_call',
@@ -432,6 +441,19 @@ export function summarizeOpenAINativeStreamItem(
       )
       pushDetail(lines, 'status', readString(item.status))
       pushDetail(lines, 'results', countArray(record.results))
+      return lines.join('\n')
+    }
+    case 'image_generation_call': {
+      const record = item as Record<string, unknown>
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(
+        lines,
+        'partial_images',
+        readNumber(record.partial_image_count),
+      )
+      // Never inline the base64 payload into transcript text; keep only
+      // lightweight metadata so display fidelity doesn't become transcript noise.
+      pushDetail(lines, 'result_bytes', readStringLength(record.result))
       return lines.join('\n')
     }
     case 'mcp_list_tools': {
@@ -540,6 +562,27 @@ export function summarizeOpenAINativeOutputItem(
       pushDetail(lines, 'status', readString(item.status))
       pushDetail(lines, 'results', countArray(record.results))
       pushDetail(lines, 'result_preview', readNamedPreview(record.results))
+      return lines.join('\n')
+    }
+    case 'image_generation_call': {
+      const record = item as Record<string, unknown>
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(
+        lines,
+        'partial_images',
+        readNumber(record.partial_image_count),
+      )
+      // Preserve revised prompt visibility, but keep the binary image payload
+      // summarized as byte length instead of dumping base64 into the transcript.
+      pushDetail(lines, 'result_bytes', readStringLength(record.result))
+      const revisedPrompt = formatMultilineDetail(
+        'revised_prompt',
+        readString(record.revised_prompt),
+        600,
+      )
+      if (revisedPrompt) {
+        lines.push(revisedPrompt)
+      }
       return lines.join('\n')
     }
     case 'mcp_list_tools': {

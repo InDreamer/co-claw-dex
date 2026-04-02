@@ -326,4 +326,82 @@ describe('runOpenAIResponses', () => {
     expect(getStreamedText(entries)).toContain('Hello from audio')
     expect(getAssistantTexts(entries).join('\n')).toContain('Hello from audio')
   })
+
+  test('summarizes image generation calls without streaming image payloads', async () => {
+    const entries = await collectResponsesStream([
+      { type: 'response.created' },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item_id: 'ig_item',
+        item: {
+          type: 'image_generation_call',
+          id: 'ig_item',
+          status: 'in_progress',
+        },
+      },
+      {
+        type: 'response.image_generation_call.in_progress',
+        output_index: 0,
+        item_id: 'ig_item',
+      },
+      {
+        type: 'response.image_generation_call.partial_image',
+        output_index: 0,
+        item_id: 'ig_item',
+        partial_image_index: 0,
+        partial_image_b64: 'QUJDREVGR0g=',
+      },
+      {
+        type: 'response.image_generation_call.completed',
+        output_index: 0,
+        item_id: 'ig_item',
+      },
+      {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          type: 'image_generation_call',
+          id: 'ig_item',
+          status: 'completed',
+          revised_prompt: 'A warm illustration of a cat hugging an otter.',
+          result: 'QUJDREVGR0g=',
+          partial_image_count: 1,
+        },
+      },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_image',
+          output: [
+            {
+              type: 'image_generation_call',
+              id: 'ig_item',
+              status: 'completed',
+              revised_prompt: 'A warm illustration of a cat hugging an otter.',
+              result: 'QUJDREVGR0g=',
+              partial_image_count: 1,
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        },
+      },
+    ])
+
+    const streamedText = getStreamedText(entries)
+    expect(streamedText).toContain('[OpenAI native item: image_generation_call]')
+    expect(streamedText).toContain('status: completed')
+    expect(streamedText).toContain('partial_images: 1')
+    expect(streamedText).toContain('result_bytes: 12')
+    expect(streamedText).not.toContain('QUJDREVGR0g=')
+
+    const assistantText = getAssistantTexts(entries).join('\n')
+    expect(assistantText).toContain('[OpenAI native item: image_generation_call]')
+    expect(assistantText).toContain('revised_prompt:')
+    expect(assistantText).toContain('result_bytes: 12')
+    expect(assistantText).not.toContain('QUJDREVGR0g=')
+  })
 })

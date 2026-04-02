@@ -92,6 +92,7 @@ export type OpenAIResponseBuiltinToolItem = {
     | 'computer_call'
     | 'computer_call_output'
     | 'file_search_call'
+    | 'image_generation_call'
     | 'mcp_call'
     | 'mcp_list_tools'
     | 'mcp_tool_call'
@@ -249,6 +250,21 @@ export type OpenAIResponsesStreamEvent =
       output_index?: number
       item_id?: string
       item?: OpenAIResponseCustomToolCall
+    }
+  | {
+      type:
+        | 'response.image_generation_call.in_progress'
+        | 'response.image_generation_call.generating'
+        | 'response.image_generation_call.completed'
+      output_index?: number
+      item_id?: string
+    }
+  | {
+      type: 'response.image_generation_call.partial_image'
+      output_index?: number
+      item_id?: string
+      partial_image_index?: number
+      partial_image_b64?: string
     }
   | {
       type:

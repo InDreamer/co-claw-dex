@@ -948,6 +948,44 @@ export async function* runOpenAIResponses(
           }
           break
         }
+        case 'response.image_generation_call.in_progress':
+        case 'response.image_generation_call.generating':
+        case 'response.image_generation_call.completed': {
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          const existing = streamedNativeItems.get(index)
+          const status = event.type.slice('response.image_generation_call.'.length)
+          streamedNativeItems.set(index, {
+            ...(existing?.type === 'image_generation_call' ? existing : {}),
+            type: 'image_generation_call',
+            ...(event.item_id ? { id: event.item_id } : {}),
+            status,
+          })
+          break
+        }
+        case 'response.image_generation_call.partial_image': {
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          const existing = streamedNativeItems.get(index)
+          const previousCount =
+            existing?.type === 'image_generation_call' &&
+            typeof existing.partial_image_count === 'number'
+              ? existing.partial_image_count
+              : 0
+          const partialImageCount =
+            typeof event.partial_image_index === 'number'
+              ? Math.max(previousCount, event.partial_image_index + 1)
+              : previousCount + 1
+
+          // Track progress only. The event also carries base64 image data,
+          // which we intentionally keep out of Claude-style transcript blocks.
+          streamedNativeItems.set(index, {
+            ...(existing?.type === 'image_generation_call' ? existing : {}),
+            type: 'image_generation_call',
+            ...(event.item_id ? { id: event.item_id } : {}),
+            status: 'generating',
+            partial_image_count: partialImageCount,
+          })
+          break
+        }
         case 'response.output_text.annotation.added': {
           if (!event.annotation || !event.item_id) {
             break

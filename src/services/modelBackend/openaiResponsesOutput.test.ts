@@ -168,6 +168,7 @@ describe('openaiResponsesOutput', () => {
 
   test('marks display-only native item types explicitly', () => {
     expect(isOpenAIDisplayOnlyNativeItemType('web_search_call')).toBe(true)
+    expect(isOpenAIDisplayOnlyNativeItemType('image_generation_call')).toBe(true)
     expect(isOpenAIDisplayOnlyNativeItemType('custom_tool_call')).toBe(true)
     expect(isOpenAIDisplayOnlyNativeItemType('function_call')).toBe(false)
   })
@@ -238,5 +239,37 @@ describe('openaiResponsesOutput', () => {
     expect(summary).toContain(
       'image_url_preview: https://example.com/screenshot.png',
     )
+  })
+
+  test('summarizes image generation calls without leaking base64 payloads', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'image_generation_call',
+      status: 'completed',
+      revised_prompt: 'A warm illustration of a cat hugging an otter.',
+      result: 'QUJDREVGR0g=',
+      partial_image_count: 2,
+    })
+
+    expect(summary).toContain('[OpenAI native item: image_generation_call]')
+    expect(summary).toContain('status: completed')
+    expect(summary).toContain('partial_images: 2')
+    expect(summary).toContain('result_bytes: 12')
+    expect(summary).toContain('revised_prompt:')
+    expect(summary).not.toContain('QUJDREVGR0g=')
+  })
+
+  test('keeps image generation stream summaries low-noise', () => {
+    const summary = summarizeOpenAINativeStreamItem({
+      type: 'image_generation_call',
+      status: 'generating',
+      partial_image_count: 1,
+      result: 'QUJDREVGR0g=',
+    })
+
+    expect(summary).toContain('[OpenAI native item: image_generation_call]')
+    expect(summary).toContain('status: generating')
+    expect(summary).toContain('partial_images: 1')
+    expect(summary).toContain('result_bytes: 12')
+    expect(summary).not.toContain('QUJDREVGR0g=')
   })
 })
