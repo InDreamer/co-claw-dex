@@ -1,0 +1,22 @@
+version: 1
+documents:
+  - path: README.md
+    role: entry
+    layer: 1
+    parent: null
+    summary: repository entry point and router for the Codex integration documentation
+  - path: docs/INDEX.md
+    role: entry
+    layer: 1
+    parent: null
+    summary: primary documentation router for Codex integration planning and implementation
+  - path: docs/implementation/INDEX.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: route implementation work for the hybrid native Codex integration path
+  - path: docs/implementation/hybrid-native-implementation-plan.md
+    role: leaf
+    layer: 3
+    parent: docs/implementation/INDEX.md
+    summary: canonical phased implementation plan for the hybrid native Codex integration

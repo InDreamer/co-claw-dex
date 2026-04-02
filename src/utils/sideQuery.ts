@@ -22,6 +22,12 @@ import {
 import { fetchOpenAIJson } from '../services/modelBackend/openaiApi.js'
 import { getModelBetas, modelSupportsStructuredOutputs } from './betas.js'
 import { computeFingerprint } from './fingerprint.js'
+import {
+  getStrictJsonSchemaIncompatibility,
+  getToolInputJsonSchema,
+  normalizeJsonSchema,
+} from './jsonSchema.js'
+import { logForDebugging } from './debug.js'
 import { jsonStringify } from './slowOperations.js'
 import { normalizeModelStringForAPI } from './model/model.js'
 
@@ -49,6 +55,17 @@ type OpenAIInputItem =
       call_id: string
       output: string
     }
+
+const loggedStrictSchemaDowngrades = new Set<string>()
+
+function maybeLogStrictSchemaDowngrade(name: string, reason: string): void {
+  const key = `${name}:${reason}`
+  if (loggedStrictSchemaDowngrades.has(key)) {
+    return
+  }
+  loggedStrictSchemaDowngrades.add(key)
+  logForDebugging(`[sideQuery] strict mode disabled for ${name}: ${reason}`)
+}
 
 export type SideQueryOptions = {
   /** Model to use for the query */
@@ -202,15 +219,27 @@ function buildOpenAIInstructions(
 }
 
 function mapToolToOpenAIFunction(tool: Tool | BetaToolUnion): Record<string, unknown> {
-  const typedTool = tool as Tool & { input_schema?: unknown }
+  const typedTool = tool as Tool & {
+    input_schema?: Record<string, unknown>
+    strict?: boolean
+  }
+  const parameters = getToolInputJsonSchema(typedTool)
+  const strictCompatibilityError =
+    typedTool.strict === true
+      ? getStrictJsonSchemaIncompatibility(parameters)
+      : undefined
+  if (strictCompatibilityError) {
+    maybeLogStrictSchemaDowngrade(typedTool.name, strictCompatibilityError)
+  }
+
   return {
     type: 'function',
     name: typedTool.name,
     description: typedTool.description,
-    parameters:
-      typedTool.input_schema && typeof typedTool.input_schema === 'object'
-        ? typedTool.input_schema
-        : {},
+    parameters,
+    ...(typedTool.strict === true && !strictCompatibilityError
+      ? { strict: true }
+      : {}),
   }
 }
 
@@ -345,12 +374,23 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
     }
 
     if (output_format) {
+      const outputSchema = normalizeJsonSchema(
+        output_format.schema as Record<string, unknown>,
+      )
+      const strictCompatibilityError =
+        getStrictJsonSchemaIncompatibility(outputSchema)
+      if (strictCompatibilityError) {
+        maybeLogStrictSchemaDowngrade(
+          'side_query_output',
+          strictCompatibilityError,
+        )
+      }
       request.text = {
         format: {
           type: 'json_schema',
           name: 'side_query_output',
-          strict: true,
-          schema: output_format.schema,
+          ...(strictCompatibilityError ? {} : { strict: true }),
+          schema: outputSchema,
         },
       }
     }

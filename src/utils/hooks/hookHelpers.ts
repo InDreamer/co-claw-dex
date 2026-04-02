@@ -10,18 +10,71 @@ import type { SetAppState } from '../messageQueueManager.js'
 import { hasSuccessfulToolCall } from '../messages.js'
 import { addFunctionHook } from './sessionHooks.js'
 
+// Keep hook verification output strict-compatible for OpenAI structured output
+// paths: both branches require every field, and the success branch encodes the
+// absence of a blocking reason as `null` instead of an omitted property.
+const HookResponseOkSchema = lazySchema(() =>
+  z.strictObject({
+    ok: z.literal(true).describe('Whether the condition was met'),
+    reason: z
+      .null()
+      .describe('Null when the condition was met and no blocking reason exists'),
+  }),
+)
+
+const HookResponseBlockedSchema = lazySchema(() =>
+  z.strictObject({
+    ok: z.literal(false).describe('Whether the condition was met'),
+    reason: z.string().describe('Reason, if the condition was not met'),
+  }),
+)
+
 /**
  * Schema for hook responses (shared by prompt and agent hooks)
  */
 export const hookResponseSchema = lazySchema(() =>
-  z.object({
-    ok: z.boolean().describe('Whether the condition was met'),
-    reason: z
-      .string()
-      .describe('Reason, if the condition was not met')
-      .optional(),
-  }),
+  z.union([HookResponseOkSchema(), HookResponseBlockedSchema()]),
 )
+
+export function getHookResponseJsonSchema(): Tool['inputJSONSchema'] {
+  return {
+    anyOf: [
+      {
+        type: 'object',
+        properties: {
+          ok: {
+            type: 'boolean',
+            const: true,
+            description: 'Whether the condition was met',
+          },
+          reason: {
+            type: 'null',
+            description:
+              'Null when the condition was met and no blocking reason exists',
+          },
+        },
+        required: ['ok', 'reason'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          ok: {
+            type: 'boolean',
+            const: false,
+            description: 'Whether the condition was met',
+          },
+          reason: {
+            type: 'string',
+            description: 'Reason, if the condition was not met',
+          },
+        },
+        required: ['ok', 'reason'],
+        additionalProperties: false,
+      },
+    ],
+  }
+}
 
 /**
  * Add hook input JSON to prompt, either replacing $ARGUMENTS placeholder or appending.
@@ -42,21 +95,7 @@ export function createStructuredOutputTool(): Tool {
   return {
     ...SyntheticOutputTool,
     inputSchema: hookResponseSchema(),
-    inputJSONSchema: {
-      type: 'object',
-      properties: {
-        ok: {
-          type: 'boolean',
-          description: 'Whether the condition was met',
-        },
-        reason: {
-          type: 'string',
-          description: 'Reason, if the condition was not met',
-        },
-      },
-      required: ['ok'],
-      additionalProperties: false,
-    },
+    inputJSONSchema: getHookResponseJsonSchema(),
     async prompt(): Promise<string> {
       return `Use this tool to return your verification result. You MUST call this tool exactly once at the end of your response.`
     },

@@ -1,8 +1,32 @@
+<!-- docmeta
+role: entry
+layer: 1
+parent: null
+children: []
+summary: repository entry point and router for the Codex integration documentation
+read_when:
+  - first entry into the repository
+  - need to find the canonical implementation plan for Codex integration
+skip_when:
+  - the exact implementation leaf is already known
+source_of_truth:
+  - README.md
+  - docs/catalog.yaml
+-->
+
 # co-claw-dex
 
 `co-claw-dex` is a locally runnable Claude Code-style coding agent fork that swaps the original model provider boundary for an OpenAI/Codex-compatible Responses backend.
 
 The goal is not to redesign the CLI. The goal is to preserve the terminal UX, tool system, permission model, and agent flow while replacing the model runtime with an OpenAI-compatible backend.
+
+The canonical implementation truth now lives in the governed `docs/` tree. Historical research material is preserved separately and should not be used as the implementation source of truth.
+
+## Canonical Docs
+
+- `docs/INDEX.md` is the canonical documentation router.
+- `docs/implementation/hybrid-native-implementation-plan.md` is the implementation source of truth for the next coding phase.
+- Archived research notes under `research/` remain useful as historical input, but implementation decisions are now consolidated into the docs tree.
 
 ## Highlights
 
@@ -12,7 +36,7 @@ The goal is not to redesign the CLI. The goal is to preserve the terminal UX, to
 - Translates Responses streaming events back into the existing internal stream format so the CLI behavior stays familiar
 - Translates function calling into the existing tool-use flow, including stateless replay for providers that do not reliably support `previous_response_id`
 - Keeps legacy Claude-style model aliases for compatibility with existing workflows
-- Disables Anthropic-specific self-update, install, telemetry, GrowthBook, and preconnect paths in this fork
+- Disables official Anthropic install/update flows for this fork distribution
 - Ships with source-first helper scripts for build, smoke testing, local activation, and rollback
 
 ## Status
@@ -27,7 +51,7 @@ What is already migrated:
 - Responses streaming is translated into the existing internal message stream
 - Function calling is translated into the existing internal tool-use flow
 - Legacy Claude-style model aliases are preserved for compatibility
-- Official Anthropic self-update, install, telemetry, GrowthBook, and preconnect paths are disabled for this fork
+- Official Anthropic install/update release-channel flows are disabled for this fork
 
 ## Quick Start
 

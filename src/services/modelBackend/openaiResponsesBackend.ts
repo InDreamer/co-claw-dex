@@ -3,8 +3,12 @@ import { getSessionId } from '../../bootstrap/state.js'
 import { createAssistantAPIErrorMessage, createAssistantMessage, getContentText } from '../../utils/messages.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { validateBoundedIntEnvVar } from '../../utils/envValidation.js'
+import {
+  getStrictJsonSchemaIncompatibility,
+  getToolInputJsonSchema,
+  normalizeJsonSchema,
+} from '../../utils/jsonSchema.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { zodToJsonSchema } from '../../utils/zodToJsonSchema.js'
 import { convertEffortValueToLevel, resolveAppliedEffort } from '../../utils/effort.js'
 import type { AssistantMessage, Message, UserMessage } from '../../types/message.js'
 import { getEmptyToolPermissionContext, type Tool, type Tools } from '../../Tool.js'
@@ -45,21 +49,39 @@ function buildResponsesUrl(): string {
   return '/responses'
 }
 
+const loggedStrictSchemaDowngrades = new Set<string>()
+
+function maybeLogStrictSchemaDowngrade(name: string, reason: string): void {
+  const key = `${name}:${reason}`
+  if (loggedStrictSchemaDowngrades.has(key)) {
+    return
+  }
+  loggedStrictSchemaDowngrades.add(key)
+  // Log once per schema failure so we can track why strict mode is absent
+  // without flooding debug output on every turn.
+  logForDebugging(
+    `[openaiResponses] strict mode disabled for ${name}: ${reason}`,
+  )
+}
+
 function mapToolToOpenAIFunction(
   tool: Tool,
-  model: string,
 ): Promise<{
   type: 'function'
   name: string
   description: string
   parameters: Record<string, unknown>
+  strict?: true
 }> {
   return Promise.resolve().then(async () => {
-    const parameters = (
-      'inputJSONSchema' in tool && tool.inputJSONSchema
-        ? tool.inputJSONSchema
-        : zodToJsonSchema(tool.inputSchema)
-    ) as Record<string, unknown>
+    const parameters = getToolInputJsonSchema(tool)
+    const strictCompatibilityError =
+      tool.strict === true
+        ? getStrictJsonSchemaIncompatibility(parameters)
+        : undefined
+    if (strictCompatibilityError) {
+      maybeLogStrictSchemaDowngrade(tool.name, strictCompatibilityError)
+    }
 
     return {
       type: 'function',
@@ -70,7 +92,9 @@ function mapToolToOpenAIFunction(
         agents: [],
       }),
       parameters,
-      ...(model ? {} : {}),
+      ...(tool.strict === true && !strictCompatibilityError
+        ? { strict: true as const }
+        : {}),
     }
   })
 }
@@ -254,7 +278,7 @@ async function createResponsesRequest(params: StreamTurnParams): Promise<{
   const effort = resolveAppliedEffort(model, params.options.effortValue)
   const promptCacheRetention = resolveOpenAIPromptCacheRetention()
   const serializedTools = await Promise.all(
-    params.tools.map(tool => mapToolToOpenAIFunction(tool, model)),
+    params.tools.map(tool => mapToolToOpenAIFunction(tool)),
   )
 
   const request: Record<string, unknown> = {
@@ -280,12 +304,23 @@ async function createResponsesRequest(params: StreamTurnParams): Promise<{
   }
 
   if (params.options.outputFormat) {
+    const outputSchema = normalizeJsonSchema(
+      params.options.outputFormat.schema as Record<string, unknown>,
+    )
+    const strictCompatibilityError =
+      getStrictJsonSchemaIncompatibility(outputSchema)
+    if (strictCompatibilityError) {
+      maybeLogStrictSchemaDowngrade(
+        'claude_code_output_schema',
+        strictCompatibilityError,
+      )
+    }
     request.text = {
       format: {
         type: 'json_schema',
         name: 'claude_code_output_schema',
-        strict: true,
-        schema: params.options.outputFormat.schema,
+        ...(strictCompatibilityError ? {} : { strict: true }),
+        schema: outputSchema,
       },
     }
   }

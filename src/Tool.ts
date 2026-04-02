@@ -14,8 +14,17 @@ import type { ThinkingConfig } from './utils/thinking.js'
 
 export type ToolInputJSONSchema = {
   [x: string]: unknown
-  type: 'object'
+  type?: string | string[]
   properties?: {
+    [x: string]: unknown
+  }
+  required?: string[]
+  additionalProperties?: boolean | { [x: string]: unknown }
+  items?: unknown
+  anyOf?: unknown[]
+  oneOf?: unknown[]
+  allOf?: unknown[]
+  $defs?: {
     [x: string]: unknown
   }
 }
@@ -465,9 +474,10 @@ export type Tool<
    */
   maxResultSizeChars: number
   /**
-   * When true, enables strict mode for this tool, which causes the API to
-   * more strictly adhere to tool instructions and parameter schemas.
-   * Only applied when the tengu_tool_pear is enabled.
+   * When true, request builders may enable provider-native strict schema
+   * enforcement for this tool. Anthropic still gates this behind its feature
+   * flag; OpenAI only enables strict mode when the serialized schema is
+   * compatible with strict structured-output requirements.
    */
   readonly strict?: boolean
 

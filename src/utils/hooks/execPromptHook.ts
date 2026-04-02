@@ -13,7 +13,11 @@ import { createUserMessage, extractTextContent } from '../messages.js'
 import { getSmallFastModel } from '../model/model.js'
 import type { PromptHook } from '../settings/types.js'
 import { asSystemPrompt } from '../systemPromptType.js'
-import { addArgumentsToPrompt, hookResponseSchema } from './hookHelpers.js'
+import {
+  addArgumentsToPrompt,
+  getHookResponseJsonSchema,
+  hookResponseSchema,
+} from './hookHelpers.js'
 
 /**
  * Execute a prompt-based hook using an LLM
@@ -65,7 +69,7 @@ export async function execPromptHook(
           `You are evaluating a hook in Claude Code.
 
 Your response must be a JSON object matching one of the following schemas:
-1. If the condition is met, return: {"ok": true}
+1. If the condition is met, return: {"ok": true, "reason": null}
 2. If the condition is not met, return: {"ok": false, "reason": "Reason for why it is not met"}`,
         ]),
         thinkingConfig: { type: 'disabled' as const },
@@ -86,15 +90,7 @@ Your response must be a JSON object matching one of the following schemas:
           agentId: toolUseContext.agentId,
           outputFormat: {
             type: 'json_schema',
-            schema: {
-              type: 'object',
-              properties: {
-                ok: { type: 'boolean' },
-                reason: { type: 'string' },
-              },
-              required: ['ok'],
-              additionalProperties: false,
-            },
+            schema: getHookResponseJsonSchema() as Record<string, unknown>,
           },
         },
       })
@@ -152,18 +148,19 @@ Your response must be a JSON object matching one of the following schemas:
 
       // Failed to meet condition
       if (!parsed.data.ok) {
+        const stopReason = parsed.data.reason ?? 'Prompt hook condition was not met'
         logForDebugging(
-          `Hooks: Prompt hook condition was not met: ${parsed.data.reason}`,
+          `Hooks: Prompt hook condition was not met: ${stopReason}`,
         )
         return {
           hook,
           outcome: 'blocking',
           blockingError: {
-            blockingError: `Prompt hook condition was not met: ${parsed.data.reason}`,
+            blockingError: `Prompt hook condition was not met: ${stopReason}`,
             command: hook.prompt,
           },
           preventContinuation: true,
-          stopReason: parsed.data.reason,
+          stopReason,
         }
       }
 

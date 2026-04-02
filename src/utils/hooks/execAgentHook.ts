@@ -159,7 +159,10 @@ When done, return your result using the ${SYNTHETIC_OUTPUT_TOOL_NAME} tool with:
         hookAgentId,
       )
 
-      let structuredOutputResult: { ok: boolean; reason?: string } | null = null
+      let structuredOutputResult:
+        | { ok: true; reason: null }
+        | { ok: false; reason: string }
+        | null = null
       let turnCount = 0
       let hitMaxTurns = false
 
@@ -269,14 +272,16 @@ When done, return your result using the ${SYNTHETIC_OUTPUT_TOOL_NAME} tool with:
 
       // Return result based on structured output
       if (!structuredOutputResult.ok) {
+        const stopReason =
+          structuredOutputResult.reason ?? 'Agent hook condition was not met'
         logForDebugging(
-          `Hooks: Agent hook condition was not met: ${structuredOutputResult.reason}`,
+          `Hooks: Agent hook condition was not met: ${stopReason}`,
         )
         return {
           hook,
           outcome: 'blocking',
           blockingError: {
-            blockingError: `Agent hook condition was not met: ${structuredOutputResult.reason}`,
+            blockingError: `Agent hook condition was not met: ${stopReason}`,
             command: hook.prompt,
           },
         }

@@ -12,9 +12,9 @@ const inputSchema = lazySchema(() =>
       .describe(
         'The text to replace it with (must be different from old_string)',
       ),
-    replace_all: semanticBoolean(
-      z.boolean().default(false).optional(),
-    ).describe('Replace all occurrences of old_string (default false)'),
+    replace_all: semanticBoolean(z.boolean().default(false)).describe(
+      'Replace all occurrences of old_string (default false)',
+    ),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>
