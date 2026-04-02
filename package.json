@@ -27,7 +27,10 @@
     "prepublishOnly": "node -e \"if (!process.env.AUTHORIZED) { console.error('ERROR: Direct publishing is not allowed.\\nPlease see the release workflow documentation to publish this package.'); process.exit(1); }\"",
     "restore-cli": "bash scripts/restore-official-cli.sh",
     "smoke": "node cli.js auth status --text && node cli.js -p \"Reply with exactly: hello\"",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "test:p0": "vitest run --config vitest.config.ts tests/p0/**/*.test.ts",
+    "test:p0:json": "vitest run --config vitest.config.ts --reporter=json --outputFile=.vitest-p0.json --passWithNoTests tests/p0/**/*.test.ts",
+    "test:p0:check": "vitest run --config vitest.config.ts --reporter=dot --passWithNoTests tests/p0/**/*.test.ts"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
@@ -127,5 +130,8 @@
     "@img/sharp-linuxmusl-x64": "^0.34.2",
     "@img/sharp-win32-arm64": "^0.34.2",
     "@img/sharp-win32-x64": "^0.34.2"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }
