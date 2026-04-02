@@ -211,11 +211,22 @@ function getPromptCacheKey(): string {
   return getSessionId()
 }
 
+function getSharedAssistantMessageId(response: OpenAIResponse): string {
+  // Parallel tool calls from one response should stay grouped under a single
+  // assistant turn, matching the native streaming transcript shape.
+  const outputMessageId = response.output?.find(
+    (item): item is OpenAIResponseOutputItem & { id: string } =>
+      typeof item.id === 'string' && item.id.trim().length > 0,
+  )?.id
+  return outputMessageId ?? response.id
+}
+
 function createAssistantMessagesFromResponse(
   response: OpenAIResponse,
   model: string,
 ): AssistantMessage[] {
   const messages: AssistantMessage[] = []
+  const sharedMessageId = getSharedAssistantMessageId(response)
 
   for (const item of response.output || []) {
     if (item.type === 'message') {
@@ -235,6 +246,7 @@ function createAssistantMessagesFromResponse(
       }) as AssistantMessage
       message.requestId = response.id
       message.message.model = model
+      message.message.id = sharedMessageId
       messages.push(message)
       continue
     }
@@ -261,6 +273,7 @@ function createAssistantMessagesFromResponse(
       }) as AssistantMessage
       message.requestId = response.id
       message.message.model = model
+      message.message.id = sharedMessageId
       messages.push(message)
     }
   }

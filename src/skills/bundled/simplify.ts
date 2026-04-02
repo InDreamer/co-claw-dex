@@ -9,9 +9,17 @@ Review all changed files for reuse, quality, and efficiency. Fix any issues foun
 
 Run \`git diff\` (or \`git diff HEAD\` if there are staged changes) to see what changed. If there are no git changes, review the most recently modified files that the user mentioned or that you edited earlier in this conversation.
 
+Before launching any review agents, capture the full diff at a real absolute file path:
+
+1. If the Bash result is returned as \`<persisted-output>\`, use the exact \`Full output saved to: ...\` absolute path as the diff artifact.
+2. If the diff is returned inline, write it to a real temp file with Bash first, then use that absolute path as the diff artifact.
+3. Review agents run in isolated worktrees, so they must read the diff from that file path. Do not rely on the child agent being able to run \`git diff\` successfully on its own.
+
 ## Phase 2: Launch Three Review Agents in Parallel
 
-Use the ${AGENT_TOOL_NAME} tool to launch all three agents concurrently in a single message. Pass each agent the full diff so it has the complete context.
+Use the ${AGENT_TOOL_NAME} tool to launch all three agents concurrently in a single message. Each review prompt must tell the agent to read the diff from the absolute diff file path you captured in Phase 1 before inspecting any changed files.
+
+Never use placeholders or shell substitutions in reviewer prompts. Do not send strings like \`$(cat ...)\`, \`not-supported\`, or "full diff below" unless the actual diff text is literally included.
 
 For these review passes, use \`subagent_type: "general-purpose"\` unless a more specific review agent is actually available in the current session. If you want the spawned review agent to follow the parent model, put \`model: "inherit"\` in the \`model\` field. Never use \`"inherit"\` as \`subagent_type\`.
 
