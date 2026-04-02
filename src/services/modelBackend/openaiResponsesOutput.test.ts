@@ -186,4 +186,37 @@ describe('openaiResponsesOutput', () => {
     expect(summary).toContain('call_id: ct_1')
     expect(summary).toContain('input:\nhello world')
   })
+
+  test('summarizes code interpreter output types when outputs are included', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'code_interpreter_call',
+      status: 'completed',
+      code: 'print(1)',
+      outputs: [
+        { type: 'logs', content: '1' },
+        { type: 'image', url: 'https://example.com/chart.png' },
+      ],
+    })
+
+    expect(summary).toContain('[OpenAI native item: code_interpreter_call]')
+    expect(summary).toContain('outputs: 2')
+    expect(summary).toContain('output_types: logs, image')
+    expect(summary).toContain('input:')
+  })
+
+  test('summarizes computer call output image urls when included', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'computer_call_output',
+      status: 'completed',
+      output: {
+        image_url: 'https://example.com/screenshot.png',
+      },
+    })
+
+    expect(summary).toContain('[OpenAI native item: computer_call_output]')
+    expect(summary).toContain('image_urls: 1')
+    expect(summary).toContain(
+      'image_url_preview: https://example.com/screenshot.png',
+    )
+  })
 })

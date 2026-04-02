@@ -223,6 +223,78 @@ function readNamedPreview(value: unknown, limit = 3): string | undefined {
   return remainder > 0 ? `${head} (+${remainder} more)` : head
 }
 
+function readTypePreview(value: unknown, limit = 4): string | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const types = [
+    ...new Set(
+      value
+        .map(entry => (isRecord(entry) ? readString(entry.type) : undefined))
+        .filter((entry): entry is string => entry !== undefined),
+    ),
+  ]
+
+  if (types.length === 0) {
+    return undefined
+  }
+
+  const head = types.slice(0, limit).join(', ')
+  const remainder = types.length - limit
+  return remainder > 0 ? `${head} (+${remainder} more)` : head
+}
+
+function collectNestedStringValues(
+  value: unknown,
+  key: string,
+  limit = 3,
+): string[] {
+  const results: string[] = []
+  const seen = new Set<string>()
+
+  const visit = (entry: unknown): void => {
+    if (results.length >= limit) {
+      return
+    }
+
+    if (Array.isArray(entry)) {
+      for (const child of entry) {
+        visit(child)
+        if (results.length >= limit) {
+          return
+        }
+      }
+      return
+    }
+
+    if (!isRecord(entry)) {
+      return
+    }
+
+    const direct = readString(entry[key])
+    if (direct && !seen.has(direct)) {
+      seen.add(direct)
+      results.push(direct)
+      if (results.length >= limit) {
+        return
+      }
+    }
+
+    for (const child of Object.values(entry)) {
+      if (typeof child === 'object' && child !== null) {
+        visit(child)
+        if (results.length >= limit) {
+          return
+        }
+      }
+    }
+  }
+
+  visit(value)
+  return results
+}
+
 function pushDetail(
   lines: string[],
   label: string,
@@ -376,11 +448,24 @@ export function summarizeOpenAINativeStreamItem(
     case 'code_interpreter_call':
       pushDetail(lines, 'status', readString(item.status))
       pushDetail(lines, 'outputs', countArray((item as Record<string, unknown>).outputs))
+      pushDetail(
+        lines,
+        'output_types',
+        readTypePreview((item as Record<string, unknown>).outputs),
+      )
       return lines.join('\n')
     case 'computer_call':
     case 'computer_call_output':
       pushDetail(lines, 'status', readString(item.status))
       pushPreviewDetail(lines, 'action', (item as Record<string, unknown>).action, 240)
+      pushDetail(
+        lines,
+        'image_urls',
+        collectNestedStringValues(
+          (item as Record<string, unknown>).output,
+          'image_url',
+        ).length || undefined,
+      )
       return lines.join('\n')
     default:
       return `${lines[0]}\nstatus: ${readString(item.status) ?? 'unknown'}`
@@ -477,8 +562,11 @@ export function summarizeOpenAINativeOutputItem(
       return lines.join('\n')
     }
     case 'code_interpreter_call': {
+      const outputs = (item as Record<string, unknown>).outputs
       pushDetail(lines, 'status', readString(item.status))
-      pushDetail(lines, 'outputs', countArray((item as Record<string, unknown>).outputs))
+      pushDetail(lines, 'outputs', countArray(outputs))
+      pushDetail(lines, 'output_types', readTypePreview(outputs))
+      pushDetail(lines, 'output_preview', readNamedPreview(outputs))
       pushPreviewDetail(
         lines,
         'input',
@@ -489,12 +577,20 @@ export function summarizeOpenAINativeOutputItem(
     }
     case 'computer_call':
     case 'computer_call_output': {
+      const output = (item as Record<string, unknown>).output
+      const imageUrls = collectNestedStringValues(output, 'image_url')
       pushDetail(lines, 'status', readString(item.status))
       pushPreviewDetail(lines, 'action', (item as Record<string, unknown>).action)
+      pushDetail(lines, 'image_urls', imageUrls.length || undefined)
+      pushDetail(
+        lines,
+        'image_url_preview',
+        imageUrls.length > 0 ? imageUrls.join(', ') : undefined,
+      )
       pushPreviewDetail(
         lines,
         'output',
-        (item as Record<string, unknown>).output,
+        output,
       )
       return lines.join('\n')
     }
