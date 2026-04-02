@@ -507,7 +507,9 @@ export const SDKControlGetSettingsResponseSchema = lazySchema(() =>
           model: z.string(),
           // String levels only — numeric effort is ant-only and the
           // Zod→proto generator can't emit enum∪number unions.
-          effort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).nullable(),
+          effort: z
+            .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+            .nullable(),
         })
         .optional()
         .describe(

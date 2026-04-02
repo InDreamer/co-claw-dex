@@ -74,7 +74,7 @@ export const EXPLORE_AGENT: BuiltInAgentDefinition = {
   source: 'built-in',
   baseDir: 'built-in',
   // Ants get inherit to use the main agent's model; external users get the
-  // lightweight Codex model for fast read-only exploration.
+  // strongest mini model for fast read-only exploration.
   model: process.env.USER_TYPE === 'ant' ? 'inherit' : 'gpt-5.4-mini',
   // Explore is a fast read-only search agent — it doesn't need commit/PR/lint
   // rules from CLAUDE.md. The main agent has full context and interprets results.

@@ -11,6 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
+import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
@@ -24,7 +25,7 @@ import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
-import { AGENT_MODEL_OPTIONS, getAgentModel } from '../../utils/model/agent.js';
+import { AGENT_MODEL_OPTIONS, getAgentModel, type AgentModelAlias } from '../../utils/model/agent.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions/permissions.js';
@@ -82,8 +83,8 @@ function getAutoBackgroundMs(): number {
 const baseInputSchema = lazySchema(() => z.object({
   description: z.string().describe('A short (3-5 word) description of the task'),
   prompt: z.string().describe('The task for the agent to perform'),
-  subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
-  model: z.enum(AGENT_MODEL_OPTIONS).optional().describe("Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
+  subagent_type: z.string().optional().describe('The agent type to use for this task, for example "general-purpose" or "claude-code-guide". Do not put model names like "gpt-5.4" or "inherit" here.'),
+  model: z.enum(AGENT_MODEL_OPTIONS).optional().describe('Optional model override for this agent. Takes precedence over the agent definition\'s model frontmatter. If omitted, uses the agent definition\'s model, or inherits from the parent. Use "inherit" only here, never in subagent_type.'),
   run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')
 }));
 
@@ -199,6 +200,45 @@ function normalizeOptionalAgentString(value: string | undefined): string | undef
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function isAgentModelToken(value: string): value is AgentModelAlias {
+  return (AGENT_MODEL_OPTIONS as readonly string[]).includes(value);
+}
+
+function normalizeAgentInvocationInput({
+  subagentType,
+  model,
+  activeAgents
+}: {
+  subagentType?: string;
+  model?: AgentModelAlias;
+  activeAgents: AgentDefinition[];
+}): {
+  subagentType?: string;
+  model?: AgentModelAlias;
+} {
+  const normalizedSubagentType = normalizeOptionalAgentString(subagentType);
+  if (!normalizedSubagentType) {
+    return {
+      subagentType: undefined,
+      model
+    };
+  }
+
+  const hasMatchingAgent = activeAgents.some(agent => agent.agentType === normalizedSubagentType);
+  if (!isOpenAIResponsesBackendEnabled() || hasMatchingAgent || !isAgentModelToken(normalizedSubagentType)) {
+    return {
+      subagentType: normalizedSubagentType,
+      model
+    };
+  }
+
+  logForDebugging(`[AgentTool] Treating subagent_type='${normalizedSubagentType}' as a misplaced model token and falling back to ${GENERAL_PURPOSE_AGENT.agentType}.`);
+  return {
+    subagentType: GENERAL_PURPOSE_AGENT.agentType,
+    model: model ?? normalizedSubagentType
+  };
+}
+
 export const AgentTool = buildTool({
   async prompt({
     agents,
@@ -255,14 +295,20 @@ export const AgentTool = buildTool({
     cwd
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
-    const model = isCoordinatorMode() ? undefined : modelParam;
-    const normalizedSubagentType = normalizeOptionalAgentString(subagent_type);
+    let model = isCoordinatorMode() ? undefined : modelParam;
     const normalizedName = normalizeOptionalAgentString(name);
     const normalizedTeamName = normalizeOptionalAgentString(team_name);
     const normalizedCwd = normalizeOptionalAgentString(cwd);
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
+    const normalizedInvocation = normalizeAgentInvocationInput({
+      subagentType: subagent_type,
+      model,
+      activeAgents: toolUseContext.options.agentDefinitions.activeAgents
+    });
+    const normalizedSubagentType = normalizedInvocation.subagentType;
+    model = normalizedInvocation.model;
     const permissionMode = appState.toolPermissionContext.mode;
     // In-process teammates get a no-op setAppState; setAppStateForTasks
     // reaches the root store so task registration/progress/kill stay visible.

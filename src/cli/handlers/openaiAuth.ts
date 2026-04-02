@@ -11,6 +11,7 @@ import {
 } from '../../services/modelBackend/openaiCodexConfig.js'
 import { buildOpenAIRequestHeaders } from '../../services/modelBackend/openaiApi.js'
 import { errorMessage } from '../../utils/errors.js'
+import { renderModelName } from '../../utils/model/model.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 
 type ApiKeySource = 'OPENAI_API_KEY' | '~/.codex/auth.json' | 'none'
@@ -132,9 +133,12 @@ export async function authStatus(opts: {
   const status = getStatusPayload()
 
   if (opts.text) {
+    const modelLabel = renderModelName(status.model)
     process.stdout.write(`Backend: OpenAI/Codex Responses\n`)
     process.stdout.write(`Provider: ${status.providerId}\n`)
-    process.stdout.write(`Model: ${status.model}\n`)
+    process.stdout.write(
+      `Model: ${modelLabel === status.model ? status.model : `${modelLabel} (${status.model})`}\n`,
+    )
     process.stdout.write(`Base URL: ${status.baseUrl}\n`)
     process.stdout.write(`Wire API: ${status.wireApi}\n`)
     process.stdout.write(`Store responses: ${status.storeResponses}\n`)

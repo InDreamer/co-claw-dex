@@ -11,7 +11,7 @@ import { getAWSRegion, getDefaultVertexRegion, isEnvTruthy } from './envUtils.js
 import { getDisplayPath } from './file.js';
 import { formatNumber } from './format.js';
 import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, toIDEDisplayName } from './ide.js';
-import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
+import { getClaudeAiUserDefaultModelDescription, modelDisplayString, renderModelName } from './model/model.js';
 import { getAPIProvider } from './model/providers.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
@@ -260,6 +260,8 @@ export function buildAccountProperties(): Property[] {
 export function buildAPIProviderProperties(): Property[] {
   if (isOpenAIResponsesBackendEnabled()) {
     const provider = loadCodexProviderConfig()
+    const modelId = resolveOpenAIModel(undefined)
+    const modelLabel = renderModelName(modelId)
     return [
       {
         label: 'API provider',
@@ -271,7 +273,7 @@ export function buildAPIProviderProperties(): Property[] {
       },
       {
         label: 'Model',
-        value: resolveOpenAIModel(undefined),
+        value: modelLabel === modelId ? modelId : `${modelLabel} (${modelId})`,
       },
       {
         label: 'Wire API',
@@ -395,7 +397,7 @@ export function buildAPIProviderProperties(): Property[] {
 }
 export function getModelDisplayLabel(mainLoopModel: string | null): string {
   if (isOpenAIResponsesBackendEnabled()) {
-    return resolveOpenAIModel(mainLoopModel ?? undefined)
+    return renderModelName(resolveOpenAIModel(mainLoopModel ?? undefined))
   }
 
   let modelLabel = modelDisplayString(mainLoopModel);

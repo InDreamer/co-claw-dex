@@ -21,6 +21,7 @@ type CodexAuthConfig = {
 
 export type OpenAIReasoningEffort =
   | 'none'
+  | 'minimal'
   | 'low'
   | 'medium'
   | 'high'
@@ -83,13 +84,12 @@ function normalizeReasoningEffort(
   const normalized = value?.trim().toLowerCase()
   switch (normalized) {
     case 'none':
+    case 'minimal':
     case 'low':
     case 'medium':
     case 'high':
     case 'xhigh':
       return normalized
-    case 'minimal':
-      return 'low'
     case 'max':
       return 'xhigh'
     default:

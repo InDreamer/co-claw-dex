@@ -7,7 +7,7 @@ import type { LocalJSXCommandOnDone } from '../../types/command.js';
 import { EFFORT_LEVELS, type EffortValue, getDisplayedEffortLevel, getEffortEnvOverride, getEffortValueDescription, parseEffortValue, resolveAppliedEffort, toPersistableEffort } from '../../utils/effort.js';
 import { updateSettingsForSource } from '../../utils/settings/settings.js';
 const COMMON_HELP_ARGS = ['help', '-h', '--help'];
-const EFFORT_ARGUMENT_HINT = '[none|low|medium|high|xhigh|auto]';
+const EFFORT_ARGUMENT_HINT = '[none|minimal|low|medium|high|xhigh|auto]';
 const EFFORT_OPTIONS_TEXT = [...EFFORT_LEVELS, 'auto'].join(', ');
 type EffortCommandResult = {
   message: string;
@@ -180,7 +180,7 @@ function ApplyEffortAndClose(t0) {
 export async function call(onDone: LocalJSXCommandOnDone, _context: unknown, args?: string): Promise<React.ReactNode> {
   args = args?.trim() || '';
   if (COMMON_HELP_ARGS.includes(args)) {
-    onDone(`Usage: /effort ${EFFORT_ARGUMENT_HINT}\n\nEffort levels:\n- none: Minimal reasoning for the fastest possible response\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- xhigh: Maximum reasoning depth for the hardest tasks\n- auto: Use the default effort level for your model\n\nLegacy compatibility: /effort max is accepted and normalized to xhigh.`);
+    onDone(`Usage: /effort ${EFFORT_ARGUMENT_HINT}\n\nEffort levels:\n- none: No reasoning when the model supports it\n- minimal: Fastest reasoning mode for GPT-5 style configs\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- xhigh: Maximum reasoning depth for the hardest tasks\n- auto: Use the default effort level for your model\n\nModel-specific compatibility: if a model does not support your chosen level, the runtime applies the nearest supported fast/slow equivalent.\nLegacy compatibility: /effort max is accepted and normalized to xhigh.`);
     return;
   }
   if (!args || args === 'current' || args === 'status') {

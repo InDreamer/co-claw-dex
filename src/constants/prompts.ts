@@ -145,7 +145,7 @@ function getCliHelpName(): string {
 
 function getProviderModelFamilyNote(): string {
   if (isOpenAIResponsesBackendEnabled()) {
-    return `This CLI is configured for OpenAI-compatible Responses models. The default coding model is '${resolveOpenAIModel(undefined)}'. Legacy Claude-style model aliases are preserved for compatibility, but explicit OpenAI model IDs are preferred when you need a specific model.`
+    return `This CLI is configured for OpenAI-compatible Responses models. The current configured default model is '${resolveOpenAIModel(undefined)}'. By current OpenAI guidance, GPT-5.4 is the recommended general-purpose default for coding workflows, while GPT-5.3-Codex and GPT-5.2-Codex remain coding-specialized alternatives. Legacy Claude-style model aliases are preserved for compatibility, but explicit OpenAI model IDs are preferred when you need a specific model.`
   }
   return `The most recent Claude model family is Claude 4.5/4.6. Model IDs — Opus 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.opus}', Sonnet 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.sonnet}', Haiku 4.5: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`
 }

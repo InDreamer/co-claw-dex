@@ -609,10 +609,11 @@ export function modelDisplayString(model: ModelSetting): string {
     } else if (isClaudeAISubscriber()) {
       return `Default (${getClaudeAiUserDefaultModelDescription()})`
     }
-    return `Default (${getDefaultMainLoopModel()})`
+    return `Default (${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`
   }
   const resolvedModel = parseUserSpecifiedModel(model)
-  return model === resolvedModel ? resolvedModel : `${model} (${resolvedModel})`
+  const renderedResolved = renderModelName(resolvedModel)
+  return model === resolvedModel ? renderedResolved : `${model} (${renderedResolved})`
 }
 
 // @[MODEL LAUNCH]: Add a marketing name mapping for the new model below.

@@ -154,7 +154,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
         FILE_READ_TOOL_NAME,
         WEB_FETCH_TOOL_NAME,
         WEB_SEARCH_TOOL_NAME,
-      ],
+  ],
   source: 'built-in',
   baseDir: 'built-in',
   model: 'gpt-5.4-mini',

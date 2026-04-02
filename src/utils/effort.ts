@@ -3,7 +3,10 @@ import { isUltrathinkEnabled } from './thinking.js'
 import { getInitialSettings } from './settings/settings.js'
 import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
-import { getOpenAICodexModelCatalogEntry } from '../services/modelBackend/openaiModelCatalog.js'
+import {
+  getOpenAICodexModelCatalogEntry,
+  getOpenAICodexSupportedEffortLevels,
+} from '../services/modelBackend/openaiModelCatalog.js'
 import { resolveOpenAIReasoningEffort } from '../services/modelBackend/openaiCodexConfig.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
@@ -14,6 +17,7 @@ export type { EffortLevel }
 
 export const EFFORT_LEVELS = [
   'none',
+  'minimal',
   'low',
   'medium',
   'high',
@@ -62,8 +66,9 @@ export function modelSupportsXHighEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (getOpenAICodexModelCatalogEntry(model)) {
-    return true
+  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  if (openAIModel) {
+    return openAIModel.supportedEffortLevels.includes('xhigh')
   }
   if (model.toLowerCase().includes('opus-4-6')) {
     return true
@@ -92,7 +97,7 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
     return 'xhigh'
   }
   if (str === 'minimal') {
-    return 'low'
+    return 'minimal'
   }
   if (isEffortLevel(str)) {
     return str
@@ -179,10 +184,7 @@ export function resolveAppliedEffort(
     appStateEffortValue ??
     providerDefaultEffort ??
     getDefaultEffortForModel(model)
-  if (resolved === 'xhigh' && !modelSupportsXHighEffort(model)) {
-    return 'high'
-  }
-  return resolved
+  return resolveCompatibleEffortForModel(model, resolved)
 }
 
 /**
@@ -224,7 +226,6 @@ export function convertEffortValueToLevel(value: EffortValue): EffortLevel {
     // TypeScript types can't help us. Coerce unknown strings to 'high'
     // rather than passing them through unchecked.
     if (value === 'max') return 'xhigh'
-    if (value === 'minimal') return 'low'
     return isEffortLevel(value) ? value : 'high'
   }
   if (process.env.USER_TYPE === 'ant' && typeof value === 'number') {
@@ -246,6 +247,8 @@ export function getEffortLevelDescription(level: EffortLevel): string {
   switch (level) {
     case 'none':
       return 'Minimal reasoning for the fastest possible response'
+    case 'minimal':
+      return 'Fastest reasoning mode that still keeps a small planning budget'
     case 'low':
       return 'Quick, straightforward implementation with minimal overhead'
     case 'medium':
@@ -354,4 +357,64 @@ export function getDefaultEffortForModel(
   // Fallback to undefined, which means we don't set an effort level. This
   // should resolve to high effort level in the API.
   return undefined
+}
+
+export function getSupportedEffortLevelsForModel(
+  model: string,
+): readonly EffortLevel[] {
+  const openAILevels = getOpenAICodexSupportedEffortLevels(model)
+  if (openAILevels) {
+    return openAILevels as readonly EffortLevel[]
+  }
+  return modelSupportsXHighEffort(model)
+    ? ['none', 'low', 'medium', 'high', 'xhigh']
+    : ['none', 'low', 'medium', 'high']
+}
+
+export function getCompatibleEffortLevelForModel(
+  model: string,
+  effort: EffortLevel | undefined,
+): EffortLevel | undefined {
+  const resolved = resolveCompatibleEffortForModel(model, effort)
+  return typeof resolved === 'string' ? convertEffortValueToLevel(resolved) : undefined
+}
+
+function resolveCompatibleEffortForModel(
+  model: string,
+  effort: EffortValue | undefined,
+): EffortValue | undefined {
+  if (effort === undefined || typeof effort === 'number') {
+    return effort
+  }
+
+  const openAIModel = getOpenAICodexModelCatalogEntry(model)
+  if (openAIModel) {
+    if (openAIModel.supportedEffortLevels.includes(effort)) {
+      return effort
+    }
+    if (
+      (effort === 'minimal' || effort === 'none') &&
+      openAIModel.supportedEffortLevels.includes('none')
+    ) {
+      return 'none'
+    }
+    if (
+      (effort === 'minimal' || effort === 'none') &&
+      openAIModel.supportedEffortLevels.includes('low')
+    ) {
+      return 'low'
+    }
+    if (
+      effort === 'xhigh' &&
+      openAIModel.supportedEffortLevels.includes('high')
+    ) {
+      return 'high'
+    }
+    return openAIModel.defaultEffort
+  }
+
+  if (effort === 'xhigh' && !modelSupportsXHighEffort(model)) {
+    return 'high'
+  }
+  return effort
 }

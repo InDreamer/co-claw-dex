@@ -13,6 +13,8 @@ Run \`git diff\` (or \`git diff HEAD\` if there are staged changes) to see what 
 
 Use the ${AGENT_TOOL_NAME} tool to launch all three agents concurrently in a single message. Pass each agent the full diff so it has the complete context.
 
+For these review passes, use \`subagent_type: "general-purpose"\` unless a more specific review agent is actually available in the current session. If you want the spawned review agent to follow the parent model, put \`model: "inherit"\` in the \`model\` field. Never use \`"inherit"\` as \`subagent_type\`.
+
 ### Agent 1: Code Reuse Review
 
 For each change:

@@ -52,7 +52,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
     return {
       value: null,
       label: 'Default (recommended)',
-      description: `Use the configured Codex default (currently ${currentModel})`,
+      description: `Use the configured default model (currently ${currentModel})`,
       descriptionForModel: `Default model (currently ${currentModel})`,
     }
   }
