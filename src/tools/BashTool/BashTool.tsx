@@ -9,7 +9,7 @@ import { getKairosActive } from '../../bootstrap/state.js';
 import { TOOL_SUMMARY_MAX_LENGTH } from '../../constants/toolLimits.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { notifyVscodeFileUpdated } from '../../services/mcp/vscodeSdkMcp.js';
-import type { SetToolJSXFn, ToolCallProgress, ToolUseContext, ValidationResult } from '../../Tool.js';
+import type { SetToolJSXFn, ToolCallProgress, ToolInputJSONSchema, ToolUseContext, ValidationResult } from '../../Tool.js';
 import { buildTool, type ToolDef } from '../../Tool.js';
 import { backgroundExistingForegroundTask, markTaskNotified, registerForeground, spawnShellTask, unregisterForeground } from '../../tasks/LocalShellTask/LocalShellTask.js';
 import type { AgentId } from '../../types/ids.js';
@@ -259,6 +259,39 @@ const inputSchema = lazySchema(() => isBackgroundTasksDisabled ? fullInputSchema
 }));
 type InputSchema = ReturnType<typeof inputSchema>;
 
+function getInputJsonSchema(): ToolInputJSONSchema {
+  const properties: NonNullable<ToolInputJSONSchema['properties']> = {
+    command: {
+      type: 'string',
+      description: 'The command to execute'
+    },
+    timeout: {
+      type: ['number', 'null'],
+      description: `Optional timeout in milliseconds (max ${getMaxTimeoutMs()})`
+    },
+    description: {
+      type: ['string', 'null'],
+      description: 'Clear, concise description of what this command does in active voice.'
+    },
+    dangerouslyDisableSandbox: {
+      type: ['boolean', 'null'],
+      description: 'Set this to true to dangerously override sandbox mode and run commands without sandboxing.'
+    }
+  };
+  if (!isBackgroundTasksDisabled) {
+    properties.run_in_background = {
+      type: ['boolean', 'null'],
+      description: 'Set to true to run this command in the background. Use Read to read the output later.'
+    };
+  }
+  return {
+    type: 'object',
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false
+  };
+}
+
 // Use fullInputSchema for the type to always include run_in_background
 // (even when it's omitted from the schema, the code needs to handle it)
 export type BashToolInput = z.infer<ReturnType<typeof fullInputSchema>>;
@@ -477,6 +510,9 @@ export const BashTool = buildTool({
   },
   get inputSchema(): InputSchema {
     return inputSchema();
+  },
+  get inputJSONSchema(): ToolInputJSONSchema {
+    return getInputJsonSchema();
   },
   get outputSchema(): OutputSchema {
     return outputSchema();

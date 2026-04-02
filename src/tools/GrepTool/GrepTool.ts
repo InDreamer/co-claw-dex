@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { ValidationResult } from '../../Tool.js'
+import type { ToolInputJSONSchema, ValidationResult } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { getCwd } from '../../utils/cwd.js'
 import { isENOENT } from '../../utils/errors.js'
@@ -90,6 +90,96 @@ const inputSchema = lazySchema(() =>
 )
 type InputSchema = ReturnType<typeof inputSchema>
 
+const inputJSONSchema: ToolInputJSONSchema = {
+  type: 'object',
+  properties: {
+    pattern: {
+      type: 'string',
+      description: 'The regular expression pattern to search for in file contents',
+    },
+    path: {
+      type: ['string', 'null'],
+      description:
+        'File or directory to search in (rg PATH). Defaults to current working directory.',
+    },
+    glob: {
+      type: ['string', 'null'],
+      description:
+        'Glob pattern to filter files (e.g. "*.js", "*.{ts,tsx}") - maps to rg --glob',
+    },
+    output_mode: {
+      enum: ['content', 'files_with_matches', 'count', null],
+      description:
+        'Output mode: "content" shows matching lines, "files_with_matches" shows file paths, "count" shows match counts. Defaults to "files_with_matches".',
+    },
+    '-B': {
+      type: ['number', 'null'],
+      description:
+        'Number of lines to show before each match (rg -B). Requires output_mode: "content", ignored otherwise.',
+    },
+    '-A': {
+      type: ['number', 'null'],
+      description:
+        'Number of lines to show after each match (rg -A). Requires output_mode: "content", ignored otherwise.',
+    },
+    '-C': {
+      type: ['number', 'null'],
+      description: 'Alias for context.',
+    },
+    context: {
+      type: ['number', 'null'],
+      description:
+        'Number of lines to show before and after each match (rg -C). Requires output_mode: "content", ignored otherwise.',
+    },
+    '-n': {
+      type: ['boolean', 'null'],
+      description:
+        'Show line numbers in output (rg -n). Requires output_mode: "content", ignored otherwise. Defaults to true.',
+    },
+    '-i': {
+      type: ['boolean', 'null'],
+      description: 'Case insensitive search (rg -i)',
+    },
+    type: {
+      type: ['string', 'null'],
+      description:
+        'File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.',
+    },
+    head_limit: {
+      type: ['number', 'null'],
+      description:
+        'Limit output to first N lines/entries. Defaults to 250 when unspecified. Pass 0 for unlimited.',
+    },
+    offset: {
+      type: ['number', 'null'],
+      description:
+        'Skip first N lines/entries before applying head_limit. Defaults to 0.',
+    },
+    multiline: {
+      type: ['boolean', 'null'],
+      description:
+        'Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false.',
+    },
+  },
+  required: [
+    'pattern',
+    'path',
+    'glob',
+    'output_mode',
+    '-B',
+    '-A',
+    '-C',
+    'context',
+    '-n',
+    '-i',
+    'type',
+    'head_limit',
+    'offset',
+    'multiline',
+  ],
+  additionalProperties: false,
+}
+
 // Version control system directories to exclude from searches
 // These are excluded automatically because they create noise in search results
 const VCS_DIRECTORIES_TO_EXCLUDE = [
@@ -176,6 +266,9 @@ export const GrepTool = buildTool({
   },
   get inputSchema(): InputSchema {
     return inputSchema()
+  },
+  get inputJSONSchema(): ToolInputJSONSchema {
+    return inputJSONSchema
   },
   get outputSchema(): OutputSchema {
     return outputSchema()

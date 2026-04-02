@@ -25,7 +25,7 @@ import {
   addSkillDirectories,
   discoverSkillDirsForPaths,
 } from '../../skills/loadSkillsDir.js'
-import type { ToolUseContext } from '../../Tool.js'
+import type { ToolInputJSONSchema, ToolUseContext } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { getCwd } from '../../utils/cwd.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from '../../utils/envUtils.js'
@@ -243,6 +243,34 @@ const inputSchema = lazySchema(() =>
 )
 type InputSchema = ReturnType<typeof inputSchema>
 
+const inputJSONSchema: ToolInputJSONSchema = {
+  type: 'object',
+  properties: {
+    file_path: {
+      type: 'string',
+      description: 'The absolute path to the file to read',
+    },
+    offset: {
+      type: ['integer', 'null'],
+      minimum: 0,
+      description:
+        'The line number to start reading from. Only provide if the file is too large to read at once',
+    },
+    limit: {
+      type: ['integer', 'null'],
+      minimum: 1,
+      description:
+        'The number of lines to read. Only provide if the file is too large to read at once.',
+    },
+    pages: {
+      type: ['string', 'null'],
+      description: `Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum ${PDF_MAX_PAGES_PER_READ} pages per request.`,
+    },
+  },
+  required: ['file_path', 'offset', 'limit', 'pages'],
+  additionalProperties: false,
+}
+
 export type Input = z.infer<InputSchema>
 
 const outputSchema = lazySchema(() => {
@@ -360,6 +388,9 @@ export const FileReadTool = buildTool({
   },
   get inputSchema(): InputSchema {
     return inputSchema()
+  },
+  get inputJSONSchema(): ToolInputJSONSchema {
+    return inputJSONSchema
   },
   get outputSchema(): OutputSchema {
     return outputSchema()
