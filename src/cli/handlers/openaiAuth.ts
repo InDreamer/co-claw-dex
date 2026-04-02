@@ -9,6 +9,7 @@ import {
   resolveOpenAIModel,
   shouldStoreOpenAIResponses,
 } from '../../services/modelBackend/openaiCodexConfig.js'
+import { buildOpenAIRequestHeaders } from '../../services/modelBackend/openaiApi.js'
 import { errorMessage } from '../../utils/errors.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 
@@ -38,23 +39,27 @@ async function validateConfiguredKey(): Promise<{
   }
 
   try {
+    const requestBody = {
+      model: resolveOpenAIModel(undefined),
+      input: [
+        {
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Reply with exactly ok' }],
+        },
+      ],
+      max_output_tokens: 8,
+      store: false,
+    }
     const response = await fetch(`${resolveOpenAIBaseUrl()}/responses`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: jsonStringify({
-        model: resolveOpenAIModel(undefined),
-        input: [
-          {
-            role: 'user',
-            content: [{ type: 'input_text', text: 'Reply with exactly ok' }],
-          },
-        ],
-        max_output_tokens: 8,
-        store: false,
-      }),
+      headers: await buildOpenAIRequestHeaders(
+        apiKey,
+        {
+          accept: 'application/json',
+        },
+        requestBody,
+      ),
+      body: jsonStringify(requestBody),
     })
 
     if (response.ok) {

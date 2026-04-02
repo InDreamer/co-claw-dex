@@ -9,6 +9,7 @@ type CodexProviderConfig = {
   disableResponseStorage: boolean
   baseUrl: string
   wireApi: string
+  requiresOpenAIAuth: boolean
   promptCacheRetention?: 'in_memory' | '24h'
   modelContextWindow?: number
   reasoningEffort?: OpenAIReasoningEffort
@@ -121,6 +122,7 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
       disableResponseStorage: true,
       baseUrl: DEFAULT_BASE_URL,
       wireApi: 'responses',
+      requiresOpenAIAuth: false,
       promptCacheRetention: undefined,
       modelContextWindow: undefined,
       reasoningEffort: undefined,
@@ -147,6 +149,11 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
   const wireApi =
     matchString(providerSection, /^\s*wire_api\s*=\s*"([^"]+)"/m) ||
     'responses'
+  const requiresOpenAIAuth =
+    matchBoolean(
+      providerSection,
+      /^\s*requires_openai_auth\s*=\s*(true|false)/m,
+    ) ?? false
   const promptCacheRetention = normalizePromptCacheRetention(
     matchString(raw, /^prompt_cache_retention\s*=\s*"([^"]+)"/m) ||
       matchString(
@@ -180,6 +187,7 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
     disableResponseStorage,
     baseUrl: normalizeBaseUrl(baseUrl),
     wireApi,
+    requiresOpenAIAuth,
     promptCacheRetention,
     modelContextWindow,
     reasoningEffort,
@@ -227,6 +235,10 @@ export function resolveOpenAIBaseUrl(): string {
   return normalizeBaseUrl(
     process.env.OPENAI_BASE_URL || loadCodexProviderConfig().baseUrl,
   )
+}
+
+export function shouldUseOpenAIOfficialClientHeaders(): boolean {
+  return loadCodexProviderConfig().requiresOpenAIAuth
 }
 
 export function resolveOpenAIModel(currentModel: string | undefined): string {

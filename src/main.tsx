@@ -108,7 +108,12 @@ import type { LogOption } from './types/logs.js';
 import type { Message as MessageType } from './types/message.js';
 import { assertMinVersion } from './utils/autoUpdater.js';
 import { CLAUDE_IN_CHROME_SKILL_HINT, CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER } from './utils/claudeInChrome/prompt.js';
-import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome } from './utils/claudeInChrome/setup.js';
+import {
+  isClaudeInChromeRuntimeAvailable,
+  setupClaudeInChrome,
+  shouldAutoEnableClaudeInChrome,
+  shouldEnableClaudeInChrome,
+} from './utils/claudeInChrome/setup.js';
 import { getContextWindowForModel } from './utils/context.js';
 import { loadConversationForResume } from './utils/conversationRecovery.js';
 import { buildDeepLinkBanner } from './utils/deepLink/banner.js';
@@ -517,7 +522,9 @@ export function startDeferredPrefetches(): void {
   // Analytics and feature flag initialization
   void initializeAnalyticsGates();
   void prefetchOfficialMcpUrls();
-  void refreshModelCapabilities();
+  if (!(isOpenAIResponsesBackendEnabled() && getIsNonInteractiveSession())) {
+    void refreshModelCapabilities();
+  }
 
   // File change detectors deferred from init() to unblock first render
   void settingsChangeDetector.initialize();
@@ -1627,14 +1634,15 @@ async function run(): Promise<CommanderCommand> {
       }
     }
 
-    // Extract Claude in Chrome option and enforce claude.ai subscriber check (unless user is ant)
+    // Extract Claude in Chrome option and let the browser runtime use the
+    // active model backend for inference when the integration is available.
     const chromeOpts = options as {
       chrome?: boolean;
     };
     // Store the explicit CLI flag so teammates can inherit it
     setChromeFlagOverride(chromeOpts.chrome);
-    const enableClaudeInChrome = !isOpenAIBackendEnabledForCli() && shouldEnableClaudeInChrome(chromeOpts.chrome) && ("external" === 'ant' || isClaudeAISubscriber());
-    const autoEnableClaudeInChrome = !isOpenAIBackendEnabledForCli() && !enableClaudeInChrome && shouldAutoEnableClaudeInChrome();
+    const enableClaudeInChrome = isClaudeInChromeRuntimeAvailable() && shouldEnableClaudeInChrome(chromeOpts.chrome);
+    const autoEnableClaudeInChrome = !enableClaudeInChrome && shouldAutoEnableClaudeInChrome();
     if (enableClaudeInChrome) {
       const platform = getPlatform();
       try {

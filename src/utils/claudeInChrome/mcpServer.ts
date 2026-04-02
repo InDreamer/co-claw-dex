@@ -153,13 +153,6 @@ export function createChromeContext(
     // a lightning-mode agent loop in Node and calls the extension's
     // lightning_turn tool once per iteration for execution.
     //
-    // Ant-only: the extension's lightning_turn is build-time-gated via
-    // import.meta.env.ANT_ONLY_BUILD — the whole lightning/ module graph is
-    // tree-shaken from the public extension build (build:prod greps for a
-    // marker to verify). Without this injection, the Node MCP server's
-    // ListTools also filters browser_task + lightning_turn out, so external
-    // users never see the tools advertised. Three independent gates.
-    //
     // Types inlined: AnthropicMessagesRequest/Response live in
     // @ant/claude-for-chrome-mcp@0.4.0 which isn't published yet. CI installs
     // 0.3.0. The callAnthropicMessages field is also 0.4.0-only, but spreading
@@ -167,54 +160,48 @@ export function createChromeContext(
     // version — 0.3.0 sees an unknown field (allowed in spread), 0.4.0 sees a
     // structurally-matching one. Once 0.4.0 is published, this can switch to
     // the package's exported types and the dep can be bumped.
-    ...(process.env.USER_TYPE === 'ant' && {
-      callAnthropicMessages: async (req: {
-        model: string
-        max_tokens: number
-        system: string
-        messages: Parameters<typeof sideQuery>[0]['messages']
-        stop_sequences?: string[]
-        signal?: AbortSignal
-      }): Promise<{
-        content: Array<{ type: 'text'; text: string }>
-        stop_reason: string | null
-        usage?: { input_tokens: number; output_tokens: number }
-      }> => {
-        // sideQuery handles OAuth attribution fingerprint, proxy, model betas.
-        // skipSystemPromptPrefix: the lightning prompt is complete on its own;
-        // the CLI prefix would dilute the batching instructions.
-        // tools: [] is load-bearing — without it Sonnet emits
-        // <function_calls> XML before the text commands. Original
-        // lightning-harness.js (apps repo) does the same.
-        const response = await sideQuery({
-          model: req.model,
-          system: req.system,
-          messages: req.messages,
-          max_tokens: req.max_tokens,
-          stop_sequences: req.stop_sequences,
-          signal: req.signal,
-          skipSystemPromptPrefix: true,
-          tools: [],
-          querySource: 'chrome_mcp',
-        })
-        // BetaContentBlock is TextBlock | ThinkingBlock | ToolUseBlock | ...
-        // Only text blocks carry the model's command output.
-        const textBlocks: Array<{ type: 'text'; text: string }> = []
-        for (const b of response.content) {
-          if (b.type === 'text') {
-            textBlocks.push({ type: 'text', text: b.text })
-          }
+    callAnthropicMessages: async (req: {
+      model: string
+      max_tokens: number
+      system: string
+      messages: Parameters<typeof sideQuery>[0]['messages']
+      stop_sequences?: string[]
+      signal?: AbortSignal
+    }): Promise<{
+      content: Array<{ type: 'text'; text: string }>
+      stop_reason: string | null
+      usage?: { input_tokens: number; output_tokens: number }
+    }> => {
+      // sideQuery routes through the active provider adapter, so the
+      // browser-task loop can use the same model backend as the rest of the CLI.
+      const response = await sideQuery({
+        model: req.model,
+        system: req.system,
+        messages: req.messages,
+        max_tokens: req.max_tokens,
+        stop_sequences: req.stop_sequences,
+        signal: req.signal,
+        skipSystemPromptPrefix: true,
+        tools: [],
+        querySource: 'chrome_mcp',
+      })
+      // BetaContentBlock is TextBlock | ThinkingBlock | ToolUseBlock | ...
+      // Only text blocks carry the model's command output.
+      const textBlocks: Array<{ type: 'text'; text: string }> = []
+      for (const b of response.content) {
+        if (b.type === 'text') {
+          textBlocks.push({ type: 'text', text: b.text })
         }
-        return {
-          content: textBlocks,
-          stop_reason: response.stop_reason,
-          usage: {
-            input_tokens: response.usage.input_tokens,
-            output_tokens: response.usage.output_tokens,
-          },
-        }
-      },
-    }),
+      }
+      return {
+        content: textBlocks,
+        stop_reason: response.stop_reason,
+        usage: {
+          input_tokens: response.usage.input_tokens,
+          output_tokens: response.usage.output_tokens,
+        },
+      }
+    },
     trackEvent: (eventName, metadata) => {
       const safeMetadata: {
         [key: string]:

@@ -1,7 +1,9 @@
 import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
-import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js'
 import { BASE_CHROME_PROMPT } from '../../utils/claudeInChrome/prompt.js'
-import { shouldAutoEnableClaudeInChrome } from '../../utils/claudeInChrome/setup.js'
+import {
+  isClaudeInChromeRuntimeAvailable,
+  shouldAutoEnableClaudeInChrome,
+} from '../../utils/claudeInChrome/setup.js'
 import { registerBundledSkill } from '../bundledSkills.js'
 
 const CLAUDE_IN_CHROME_MCP_TOOLS = BROWSER_TOOLS.map(
@@ -24,7 +26,7 @@ export function registerClaudeInChromeSkill(): void {
     allowedTools: CLAUDE_IN_CHROME_MCP_TOOLS,
     userInvocable: true,
     isEnabled: () =>
-      !isOpenAIResponsesBackendEnabled() && shouldAutoEnableClaudeInChrome(),
+      isClaudeInChromeRuntimeAvailable() && shouldAutoEnableClaudeInChrome(),
     async getPromptForCommand(args) {
       let prompt = `${BASE_CHROME_PROMPT}\n${SKILL_ACTIVATION_MESSAGE}`
       if (args) {

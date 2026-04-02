@@ -506,6 +506,9 @@ async function streamResponse(
 ): Promise<Response> {
   return fetchOpenAIResponse(url, {
     method: 'POST',
+    headers: {
+      accept: 'text/event-stream',
+    },
     body: {
       ...request,
       stream: true,

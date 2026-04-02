@@ -1,6 +1,9 @@
 import { feature } from 'bun:bundle'
 import { isOpenAIResponsesBackendEnabled } from 'src/services/modelBackend/openaiCodexConfig.js'
-import { shouldAutoEnableClaudeInChrome } from 'src/utils/claudeInChrome/setup.js'
+import {
+  isClaudeInChromeRuntimeAvailable,
+  shouldAutoEnableClaudeInChrome,
+} from 'src/utils/claudeInChrome/setup.js'
 import { registerBatchSkill } from './batch.js'
 import { registerClaudeInChromeSkill } from './claudeInChrome.js'
 import { registerDebugSkill } from './debug.js'
@@ -70,7 +73,7 @@ export function initBundledSkills(): void {
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerClaudeApiSkill()
   }
-  if (!isOpenAIBackend && shouldAutoEnableClaudeInChrome()) {
+  if (isClaudeInChromeRuntimeAvailable() && shouldAutoEnableClaudeInChrome()) {
     registerClaudeInChromeSkill()
   }
   if (feature('RUN_SKILL_GENERATOR')) {

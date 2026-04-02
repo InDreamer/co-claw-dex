@@ -150,6 +150,7 @@ import {
   resolveOpenAIBaseUrl,
   resolveOpenAIModel,
 } from 'src/services/modelBackend/openaiCodexConfig.js'
+import { buildOpenAIRequestHeaders } from 'src/services/modelBackend/openaiApi.js'
 import { runOpenAIResponses } from 'src/services/modelBackend/openaiResponsesBackend.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import type { AgentId } from 'src/types/ids.js'
@@ -545,23 +546,27 @@ export async function verifyApiKey(
 
   if (isOpenAIResponsesBackendEnabled()) {
     try {
+      const requestBody = {
+        model: resolveOpenAIModel(undefined),
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Reply with exactly ok' }],
+          },
+        ],
+        max_output_tokens: 8,
+        store: false,
+      }
       const response = await fetch(`${resolveOpenAIBaseUrl()}/responses`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: jsonStringify({
-          model: resolveOpenAIModel(undefined),
-          input: [
-            {
-              role: 'user',
-              content: [{ type: 'input_text', text: 'Reply with exactly ok' }],
-            },
-          ],
-          max_output_tokens: 8,
-          store: false,
-        }),
+        headers: await buildOpenAIRequestHeaders(
+          apiKey,
+          {
+            accept: 'application/json',
+          },
+          requestBody,
+        ),
+        body: jsonStringify(requestBody),
       })
       return response.ok
     } catch (error) {

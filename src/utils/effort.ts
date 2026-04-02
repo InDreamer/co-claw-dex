@@ -4,6 +4,7 @@ import { getInitialSettings } from './settings/settings.js'
 import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getOpenAICodexModelCatalogEntry } from '../services/modelBackend/openaiModelCatalog.js'
+import { resolveOpenAIReasoningEffort } from '../services/modelBackend/openaiCodexConfig.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -169,8 +170,15 @@ export function resolveAppliedEffort(
   if (envOverride === null) {
     return undefined
   }
+  const providerDefaultEffort =
+    appStateEffortValue === undefined && getOpenAICodexModelCatalogEntry(model)
+      ? resolveOpenAIReasoningEffort()
+      : undefined
   const resolved =
-    envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
+    envOverride ??
+    appStateEffortValue ??
+    providerDefaultEffort ??
+    getDefaultEffortForModel(model)
   if (resolved === 'xhigh' && !modelSupportsXHighEffort(model)) {
     return 'high'
   }
