@@ -15,6 +15,7 @@ import { InterruptedByUser } from '../InterruptedByUser.js';
 import { Markdown } from '../Markdown.js';
 import { MessageResponse } from '../MessageResponse.js';
 import { MessageActionsSelectedContext } from '../messageActions.js';
+import { CitationReferences } from './CitationReferences.js';
 import { RateLimitMessage } from './RateLimitMessage.js';
 const MAX_API_ERROR_CHARS = 1000;
 type Props = {
@@ -45,7 +46,7 @@ function InvalidApiKeyMessage() {
   return t1;
 }
 export function AssistantTextMessage(t0) {
-  const $ = _c(34);
+  const $ = _c(46);
   const {
     param: t1,
     addMargin,
@@ -54,8 +55,11 @@ export function AssistantTextMessage(t0) {
     onOpenRateLimitOptions
   } = t0;
   const {
-    text
-  } = t1;
+    text,
+    citations
+  } = t1 as TextBlockParam & {
+    citations?: readonly unknown[] | null;
+  };
   const isSelected = useContext(MessageActionsSelectedContext);
   if (isEmptyMessageText(text)) {
     return null;
@@ -237,33 +241,44 @@ export function AssistantTextMessage(t0) {
           t4 = $[24];
         }
         let t5;
-        if ($[25] !== text) {
-          t5 = <Box flexDirection="column"><Markdown>{text}</Markdown></Box>;
-          $[25] = text;
-          $[26] = t5;
+        if ($[34] !== citations) {
+          // Keep citations outside the markdown body so provider-specific
+          // source metadata remains visible without mutating assistant text.
+          t5 = <CitationReferences citations={citations} />;
+          $[34] = citations;
+          $[35] = t5;
         } else {
-          t5 = $[26];
+          t5 = $[35];
         }
         let t6;
-        if ($[27] !== t4 || $[28] !== t5) {
-          t6 = <Box flexDirection="row">{t4}{t5}</Box>;
-          $[27] = t4;
-          $[28] = t5;
-          $[29] = t6;
+        if ($[36] !== t5 || $[37] !== text) {
+          t6 = <Box flexDirection="column"><Markdown>{text}</Markdown>{t5}</Box>;
+          $[36] = t5;
+          $[37] = text;
+          $[38] = t6;
         } else {
-          t6 = $[29];
+          t6 = $[38];
         }
         let t7;
-        if ($[30] !== t2 || $[31] !== t3 || $[32] !== t6) {
-          t7 = <Box alignItems="flex-start" flexDirection="row" justifyContent="space-between" marginTop={t2} width="100%" backgroundColor={t3}>{t6}</Box>;
-          $[30] = t2;
-          $[31] = t3;
-          $[32] = t6;
-          $[33] = t7;
+        if ($[39] !== t4 || $[40] !== t6) {
+          t7 = <Box flexDirection="row">{t4}{t6}</Box>;
+          $[39] = t4;
+          $[40] = t6;
+          $[41] = t7;
         } else {
-          t7 = $[33];
+          t7 = $[41];
         }
-        return t7;
+        let t8;
+        if ($[42] !== t2 || $[43] !== t3 || $[44] !== t7) {
+          t8 = <Box alignItems="flex-start" flexDirection="row" justifyContent="space-between" marginTop={t2} width="100%" backgroundColor={t3}>{t7}</Box>;
+          $[42] = t2;
+          $[43] = t3;
+          $[44] = t7;
+          $[45] = t8;
+        } else {
+          t8 = $[45];
+        }
+        return t8;
       }
   }
 }

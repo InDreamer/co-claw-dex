@@ -1,0 +1,145 @@
+import { describe, expect, test } from 'bun:test'
+import {
+  buildOpenAIContentPartKey,
+  extractOpenAIResponseMessageBlocks,
+  extractOpenAIResponseReasoningText,
+  summarizeOpenAINativeOutputItem,
+} from './openaiResponsesOutput.js'
+
+describe('openaiResponsesOutput', () => {
+  test('maps output_text annotations into Claude-style citations', () => {
+    const blocks = extractOpenAIResponseMessageBlocks({
+      id: 'msg_1',
+      content: [
+        {
+          type: 'output_text',
+          text: 'Answer with citation',
+          annotations: [
+            {
+              type: 'url_citation',
+              title: 'OpenAI Docs',
+              url: 'https://developers.openai.com',
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(blocks).toEqual([
+      {
+        type: 'text',
+        text: 'Answer with citation',
+        citations: [
+          {
+            type: 'url_citation',
+            title: 'OpenAI Docs',
+            url: 'https://developers.openai.com',
+          },
+        ],
+      },
+    ])
+  })
+
+  test('uses streamed annotation fallback when completed output omits annotations', () => {
+    const streamedAnnotations = new Map([
+      [
+        buildOpenAIContentPartKey('msg_2', 0),
+        [
+          {
+            type: 'file_citation',
+            file_id: 'file_123',
+            filename: 'report.pdf',
+            index: 17,
+          },
+        ],
+      ],
+    ])
+
+    const blocks = extractOpenAIResponseMessageBlocks(
+      {
+        id: 'msg_2',
+        content: [{ type: 'output_text', text: 'Answer from file' }],
+      },
+      streamedAnnotations,
+    )
+
+    expect(blocks[0]?.citations).toEqual([
+      {
+        type: 'file_citation',
+        file_id: 'file_123',
+        filename: 'report.pdf',
+        index: 17,
+      },
+    ])
+  })
+
+  test('prefers reasoning summaries over raw reasoning text', () => {
+    const text = extractOpenAIResponseReasoningText({
+      summary: [
+        { type: 'summary_text', text: 'step 1' },
+        { type: 'summary_text', text: 'step 2' },
+      ],
+      content: [{ type: 'reasoning_text', text: 'raw chain of thought' }],
+    })
+
+    expect(text).toBe('step 1\n\nstep 2')
+  })
+
+  test('summarizes native web search items for display-only transcript fallback', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'web_search_call',
+      id: 'ws_1',
+      action: {
+        type: 'search',
+        query: 'responses api streaming events',
+        sources: [{ title: 'Docs', url: 'https://developers.openai.com' }],
+      },
+    })
+
+    expect(summary).toContain('[OpenAI native item: web_search_call]')
+    expect(summary).toContain('action: search')
+    expect(summary).toContain('query: responses api streaming events')
+    expect(summary).toContain('sources: 1')
+    expect(summary).toContain('source_preview: Docs')
+  })
+
+  test('summarizes MCP tool calls with argument and result previews', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'mcp_tool_call',
+      id: 'mcp_1',
+      server_label: 'docs',
+      tool_name: 'search',
+      arguments: {
+        query: 'responses api',
+      },
+      result: {
+        hits: 3,
+      },
+    })
+
+    expect(summary).toContain('[OpenAI native item: mcp_tool_call]')
+    expect(summary).toContain('server_label: docs')
+    expect(summary).toContain('tool_name: search')
+    expect(summary).toContain('arguments:')
+    expect(summary).toContain('"query": "responses api"')
+    expect(summary).toContain('result:')
+    expect(summary).toContain('"hits": 3')
+  })
+
+  test('summarizes file search items with result preview names', () => {
+    const summary = summarizeOpenAINativeOutputItem({
+      type: 'file_search_call',
+      id: 'fs_1',
+      query: 'migration plan',
+      results: [
+        { filename: 'phase-1.md' },
+        { title: 'phase-2.md' },
+      ],
+    })
+
+    expect(summary).toContain('[OpenAI native item: file_search_call]')
+    expect(summary).toContain('query: migration plan')
+    expect(summary).toContain('results: 2')
+    expect(summary).toContain('result_preview: phase-1.md, phase-2.md')
+  })
+})

@@ -1,9 +1,31 @@
+export type OpenAIResponseAnnotation = {
+  type: string
+  [key: string]: unknown
+}
+
 export type OpenAIResponseOutputText = {
   type: 'output_text'
   text: string
+  annotations?: OpenAIResponseAnnotation[]
+  logprobs?: unknown[]
+}
+
+export type OpenAIResponseRefusal = {
+  type: 'refusal'
+  refusal?: string
+  text?: string
+  [key: string]: unknown
+}
+
+export type OpenAIResponseReasoningContentPart = {
+  type?: string
+  text?: string
+  summary?: string
+  [key: string]: unknown
 }
 
 export type OpenAIErrorPayload = {
+  type?: 'error'
   error?: {
     message?: string
   }
@@ -12,21 +34,70 @@ export type OpenAIErrorPayload = {
 export type OpenAIResponseMessage = {
   type: 'message'
   id?: string
+  status?: string
   role: 'assistant'
-  content?: OpenAIResponseOutputText[]
+  content?: Array<
+    OpenAIResponseOutputText |
+    OpenAIResponseRefusal |
+    {
+      type: string
+      text?: string
+      refusal?: string
+      [key: string]: unknown
+    }
+  >
 }
 
 export type OpenAIResponseFunctionCall = {
   type: 'function_call'
   id?: string
+  status?: string
   call_id: string
   name: string
   arguments: string
 }
 
+export type OpenAIResponseReasoningItem = {
+  type: 'reasoning'
+  id?: string
+  status?: string
+  summary?: OpenAIResponseReasoningContentPart[]
+  content?: OpenAIResponseReasoningContentPart[]
+  encrypted_content?: string
+  [key: string]: unknown
+}
+
+export type OpenAIResponseCustomToolCall = {
+  type: 'custom_tool_call'
+  id?: string
+  status?: string
+  call_id?: string
+  name?: string
+  input?: string
+  [key: string]: unknown
+}
+
+export type OpenAIResponseBuiltinToolItem = {
+  type:
+    | 'code_interpreter_call'
+    | 'computer_call'
+    | 'computer_call_output'
+    | 'file_search_call'
+    | 'mcp_call'
+    | 'mcp_list_tools'
+    | 'mcp_tool_call'
+    | 'web_search_call'
+  id?: string
+  status?: string
+  [key: string]: unknown
+}
+
 export type OpenAIResponseOutputItem =
   | OpenAIResponseMessage
   | OpenAIResponseFunctionCall
+  | OpenAIResponseReasoningItem
+  | OpenAIResponseCustomToolCall
+  | OpenAIResponseBuiltinToolItem
   | {
       type: string
       [key: string]: unknown
@@ -38,6 +109,9 @@ export type OpenAIResponseUsage = {
   total_tokens?: number
   input_tokens_details?: {
     cached_tokens?: number
+  }
+  output_tokens_details?: {
+    reasoning_tokens?: number
   }
 }
 
@@ -81,6 +155,16 @@ export type OpenAIResponsesStreamEvent =
       item_id?: string
     }
   | {
+      type: 'response.content_part.added' | 'response.content_part.done'
+      part?:
+        | OpenAIResponseOutputText
+        | OpenAIResponseRefusal
+        | OpenAIResponseReasoningContentPart
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
       type: 'response.output_text.delta'
       delta?: string
       output_index?: number
@@ -89,6 +173,28 @@ export type OpenAIResponsesStreamEvent =
     }
   | {
       type: 'response.output_text.done'
+      text?: string
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
+      type: 'response.output_text.annotation.added'
+      annotation?: OpenAIResponseAnnotation
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
+      type: 'response.refusal.delta'
+      delta?: string
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
+      type: 'response.refusal.done'
+      refusal?: string
       output_index?: number
       item_id?: string
       content_index?: number
@@ -103,6 +209,47 @@ export type OpenAIResponsesStreamEvent =
       item?: OpenAIResponseFunctionCall
     }
   | {
+      type: 'response.custom_tool_call_input.delta'
+      delta?: string
+      output_index?: number
+      item_id?: string
+      item?: OpenAIResponseCustomToolCall
+    }
+  | {
+      type: 'response.custom_tool_call_input.done'
+      input?: string
+      output_index?: number
+      item_id?: string
+      item?: OpenAIResponseCustomToolCall
+    }
+  | {
+      type:
+        | 'response.reasoning_summary_part.added'
+        | 'response.reasoning_summary_part.done'
+      part?: OpenAIResponseReasoningContentPart
+      output_index?: number
+      item_id?: string
+      summary_index?: number
+    }
+  | {
+      type:
+        | 'response.reasoning_summary_text.delta'
+        | 'response.reasoning_summary_text.done'
+      delta?: string
+      text?: string
+      output_index?: number
+      item_id?: string
+      summary_index?: number
+    }
+  | {
+      type: 'response.reasoning_text.delta' | 'response.reasoning_text.done'
+      delta?: string
+      text?: string
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
       type: 'response.completed'
       response: OpenAIResponse
     }
@@ -113,6 +260,9 @@ export type OpenAIResponsesStreamEvent =
         incomplete_details?: { reason?: string } | null
       }
     }
+  | (OpenAIErrorPayload & {
+      type: 'error'
+    })
   | {
       type: string
       [key: string]: unknown

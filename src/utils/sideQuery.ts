@@ -20,6 +20,13 @@ import {
   resolveOpenAIReasoningEffort,
 } from '../services/modelBackend/openaiCodexConfig.js'
 import { fetchOpenAIJson } from '../services/modelBackend/openaiApi.js'
+import {
+  extractOpenAIResponseMessageBlocks,
+  extractOpenAIResponseMessageText,
+  extractOpenAIResponseReasoningText,
+  parseOpenAIResponseFunctionArguments,
+  summarizeOpenAINativeOutputItem,
+} from '../services/modelBackend/openaiResponsesOutput.js'
 import { getModelBetas, modelSupportsStructuredOutputs } from './betas.js'
 import { computeFingerprint } from './fingerprint.js'
 import {
@@ -259,31 +266,55 @@ function mapResponsesOutputToBetaMessage(
 
   for (const output of response.output ?? []) {
     if (output.type === 'message') {
-      const parts = Array.isArray(output.content) ? output.content : []
-      for (const part of parts) {
-        if (part.type === 'output_text' && typeof part.text === 'string') {
-          content.push({ type: 'text', text: part.text } as BetaContentBlock)
-        }
+      const blocks = extractOpenAIResponseMessageBlocks(output)
+      if (blocks.length > 0) {
+        content.push(...(blocks as unknown as BetaContentBlock[]))
       }
       continue
     }
 
     if (output.type === 'function_call') {
-      let parsedInput: unknown = {}
-      try {
-        parsedInput =
-          typeof output.arguments === 'string'
-            ? JSON.parse(output.arguments)
-            : output.arguments
-      } catch {
-        parsedInput = { raw_arguments: output.arguments }
-      }
+      const parsedInput = parseOpenAIResponseFunctionArguments(
+        output as { arguments: string },
+      )
       content.push({
         type: 'tool_use',
         id: String(output.call_id ?? output.id ?? 'tool_use'),
         name: String(output.name ?? 'tool'),
         input: parsedInput,
       } as BetaContentBlock)
+      continue
+    }
+
+    if (output.type === 'reasoning') {
+      const thinking = extractOpenAIResponseReasoningText(output)
+      if (thinking) {
+        content.push({
+          type: 'thinking',
+          thinking,
+          signature: '',
+        } as BetaContentBlock)
+      }
+      continue
+    }
+
+    if (
+      output.type === 'custom_tool_call' ||
+      output.type === 'code_interpreter_call' ||
+      output.type === 'computer_call' ||
+      output.type === 'computer_call_output' ||
+      output.type === 'file_search_call' ||
+      output.type === 'mcp_call' ||
+      output.type === 'mcp_list_tools' ||
+      output.type === 'mcp_tool_call' ||
+      output.type === 'web_search_call'
+    ) {
+      const summary = summarizeOpenAINativeOutputItem(
+        output as Parameters<typeof summarizeOpenAINativeOutputItem>[0],
+      )
+      if (summary) {
+        content.push({ type: 'text', text: summary } as BetaContentBlock)
+      }
     }
   }
 
