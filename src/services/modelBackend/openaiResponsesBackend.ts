@@ -786,6 +786,7 @@ export async function* runOpenAIResponses(
             partType &&
             outputItemTypes.get(index) === 'message' &&
             partType !== 'output_text' &&
+            partType !== 'output_audio' &&
             partType !== 'refusal'
           ) {
             maybeLogResponsesDegradation(
@@ -810,6 +811,25 @@ export async function* runOpenAIResponses(
         case 'response.output_text.done': {
           break
         }
+        case 'response.output_audio.delta':
+        case 'response.output_audio.done': {
+          // The local Claude-style runtime has no native audio output block.
+          // Preserve the transcript via output_audio_transcript events instead.
+          break
+        }
+        case 'response.output_audio_transcript.delta': {
+          const text = event.delta || ''
+          if (!text) break
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          if (!startedTextBlockIndexes.has(index)) {
+            startedTextBlockIndexes.add(index)
+            yield createTextBlockStartStreamEvent(index)
+          }
+          yield createTextDeltaStreamEvent(index, text)
+          break
+        }
+        case 'response.output_audio_transcript.done':
+          break
         case 'response.refusal.delta': {
           const text = event.delta || ''
           if (!text) break

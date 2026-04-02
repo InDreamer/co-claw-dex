@@ -10,6 +10,13 @@ export type OpenAIResponseOutputText = {
   logprobs?: unknown[]
 }
 
+export type OpenAIResponseOutputAudio = {
+  type: 'output_audio'
+  audio?: string
+  transcript?: string
+  [key: string]: unknown
+}
+
 export type OpenAIResponseRefusal = {
   type: 'refusal'
   refusal?: string
@@ -37,14 +44,16 @@ export type OpenAIResponseMessage = {
   status?: string
   role: 'assistant'
   content?: Array<
-    OpenAIResponseOutputText |
-    OpenAIResponseRefusal |
-    {
-      type: string
-      text?: string
-      refusal?: string
-      [key: string]: unknown
-    }
+    | OpenAIResponseOutputText
+    | OpenAIResponseOutputAudio
+    | OpenAIResponseRefusal
+    | {
+        type: string
+        text?: string
+        refusal?: string
+        transcript?: string
+        [key: string]: unknown
+      }
   >
 }
 
@@ -158,6 +167,7 @@ export type OpenAIResponsesStreamEvent =
       type: 'response.content_part.added' | 'response.content_part.done'
       part?:
         | OpenAIResponseOutputText
+        | OpenAIResponseOutputAudio
         | OpenAIResponseRefusal
         | OpenAIResponseReasoningContentPart
       output_index?: number
@@ -174,6 +184,24 @@ export type OpenAIResponsesStreamEvent =
   | {
       type: 'response.output_text.done'
       text?: string
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
+      type: 'response.output_audio.delta' | 'response.output_audio.done'
+      delta?: string
+      audio?: string
+      output_index?: number
+      item_id?: string
+      content_index?: number
+    }
+  | {
+      type:
+        | 'response.output_audio_transcript.delta'
+        | 'response.output_audio_transcript.done'
+      delta?: string
+      transcript?: string
       output_index?: number
       item_id?: string
       content_index?: number

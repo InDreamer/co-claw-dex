@@ -252,4 +252,78 @@ describe('runOpenAIResponses', () => {
       '[OpenAI native item: web_search_call]',
     )
   })
+
+  test('streams output audio transcripts into text deltas', async () => {
+    const entries = await collectResponsesStream([
+      { type: 'response.created' },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item_id: 'msg_audio',
+        item: {
+          type: 'message',
+          id: 'msg_audio',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.content_part.added',
+        output_index: 0,
+        item_id: 'msg_audio',
+        content_index: 0,
+        part: {
+          type: 'output_audio',
+        },
+      },
+      {
+        type: 'response.output_audio_transcript.delta',
+        output_index: 0,
+        item_id: 'msg_audio',
+        content_index: 0,
+        delta: 'Hello from audio',
+      },
+      {
+        type: 'response.output_audio_transcript.done',
+        output_index: 0,
+        item_id: 'msg_audio',
+        content_index: 0,
+        transcript: 'Hello from audio',
+      },
+      {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          type: 'message',
+          id: 'msg_audio',
+          role: 'assistant',
+        },
+      },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_audio',
+          output: [
+            {
+              type: 'message',
+              id: 'msg_audio',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'output_audio',
+                  transcript: 'Hello from audio',
+                },
+              ],
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        },
+      },
+    ])
+
+    expect(getStreamedText(entries)).toContain('Hello from audio')
+    expect(getAssistantTexts(entries).join('\n')).toContain('Hello from audio')
+  })
 })

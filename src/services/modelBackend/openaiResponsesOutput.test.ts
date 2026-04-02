@@ -88,6 +88,26 @@ describe('openaiResponsesOutput', () => {
     expect(text).toBe('step 1\n\nstep 2')
   })
 
+  test('maps output_audio transcripts into text blocks for transcript fidelity', () => {
+    const blocks = extractOpenAIResponseMessageBlocks({
+      id: 'msg_audio',
+      content: [
+        {
+          type: 'output_audio',
+          transcript: 'Spoken answer',
+        },
+      ],
+    })
+
+    expect(blocks).toEqual([
+      {
+        type: 'text',
+        text: 'Spoken answer',
+        citations: [],
+      },
+    ])
+  })
+
   test('summarizes native web search items for display-only transcript fallback', () => {
     const summary = summarizeOpenAINativeOutputItem({
       type: 'web_search_call',

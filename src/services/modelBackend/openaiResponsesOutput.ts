@@ -43,6 +43,11 @@ function extractTextSegments(
       return
     }
 
+    if (typeof entry.transcript === 'string' && entry.transcript.length > 0) {
+      segments.push(entry.transcript)
+      return
+    }
+
     if (typeof entry.summary === 'string' && entry.summary.length > 0) {
       segments.push(entry.summary)
     }
@@ -69,7 +74,7 @@ export function extractOpenAIResponseMessageText(
     }
 
     const type = typeof part.type === 'string' ? part.type : undefined
-    if (type !== 'output_text' && type !== 'refusal') {
+    if (type !== 'output_text' && type !== 'output_audio' && type !== 'refusal') {
       continue
     }
 
@@ -115,7 +120,7 @@ export function extractOpenAIResponseMessageBlocks(
     }
 
     const type = typeof part.type === 'string' ? part.type : undefined
-    if (type !== 'output_text' && type !== 'refusal') {
+    if (type !== 'output_text' && type !== 'output_audio' && type !== 'refusal') {
       continue
     }
 
