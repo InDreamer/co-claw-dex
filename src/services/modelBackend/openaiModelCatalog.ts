@@ -117,15 +117,6 @@ function resolveLegacyOpenAIModelFamily(
   if (normalizedModel in OPENAI_LEGACY_MODEL_ALIASES) {
     return OPENAI_LEGACY_MODEL_ALIASES[normalizedModel]!
   }
-  if (normalizedModel.includes('opus') || normalizedModel.includes('best')) {
-    return 'gpt-5.4'
-  }
-  if (normalizedModel.includes('sonnet')) {
-    return 'gpt-5.2'
-  }
-  if (normalizedModel.includes('haiku')) {
-    return 'gpt-5-mini'
-  }
   return undefined
 }
 

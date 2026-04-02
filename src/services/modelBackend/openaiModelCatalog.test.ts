@@ -17,4 +17,13 @@ describe('openaiModelCatalog normalization', () => {
     expect(normalizeOpenAICompatibleModel('sonnet')).toBe('gpt-5.2')
     expect(normalizeOpenAICompatibleModel('haiku')).toBe('gpt-5-mini')
   })
+
+  test('preserves explicit foreign model ids instead of fuzzy-remapping them', () => {
+    expect(normalizeOpenAICompatibleModel('anthropic/claude-sonnet-4-6')).toBe(
+      'anthropic/claude-sonnet-4-6',
+    )
+    expect(normalizeOpenAICompatibleModel('vendor-opus-experimental')).toBe(
+      'vendor-opus-experimental',
+    )
+  })
 })
