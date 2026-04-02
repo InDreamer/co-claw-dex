@@ -95,6 +95,22 @@ function getAssistantTexts(entries: unknown[]): string[] {
     )
 }
 
+function getAssistantMessageIds(entries: unknown[]): string[] {
+  return entries
+    .filter(
+      (entry): entry is {
+        type: 'assistant'
+        message: { id?: string }
+      } =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        'type' in entry &&
+        entry.type === 'assistant',
+    )
+    .map(entry => entry.message.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
 beforeEach(() => {
   process.env.OPENAI_API_KEY = 'test-key'
 })
@@ -498,6 +514,43 @@ describe('runOpenAIResponses', () => {
     expect(getAssistantTexts(entries).join('\n')).toContain(
       'Transcript delivered on done.',
     )
+  })
+
+  test('groups assistant items from one completed response under a shared message id', async () => {
+    const entries = await collectResponsesStream([
+      { type: 'response.created' },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_grouped',
+          output: [
+            {
+              type: 'message',
+              id: 'msg_grouped',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Grouped text.' }],
+            },
+            {
+              type: 'function_call',
+              id: 'fn_item_2',
+              call_id: 'call_2',
+              name: 'Read',
+              arguments: '{"file_path":"README.md"}',
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        },
+      },
+    ])
+
+    expect(getAssistantTexts(entries)).toContain('Grouped text.')
+    expect(getAssistantMessageIds(entries)).toEqual([
+      'msg_grouped',
+      'msg_grouped',
+    ])
   })
 
   test('summarizes image generation calls without streaming image payloads', async () => {

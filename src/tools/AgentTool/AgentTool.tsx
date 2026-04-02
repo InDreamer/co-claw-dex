@@ -11,7 +11,6 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
-import { isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
@@ -25,7 +24,7 @@ import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
-import { AGENT_MODEL_OPTIONS, getAgentModel, type AgentModelAlias } from '../../utils/model/agent.js';
+import { AGENT_MODEL_OPTIONS, getAgentModel } from '../../utils/model/agent.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions/permissions.js';
@@ -52,6 +51,7 @@ import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME, ONE_SHOT_BUILTIN_AGENT_TYPES }
 import { buildForkedMessages, buildWorktreeNotice, FORK_AGENT, isForkSubagentEnabled, isInForkChild } from './forkSubagent.js';
 import type { AgentDefinition } from './loadAgentsDir.js';
 import { filterAgentsByMcpRequirements, hasRequiredMcpServers, isBuiltInAgent } from './loadAgentsDir.js';
+import { normalizeAgentInvocationInput } from './normalizeAgentInvocationInput.js';
 import { getPrompt } from './prompt.js';
 import { runAgent } from './runAgent.js';
 import { renderGroupedAgentToolUse, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseRejectedMessage, renderToolUseTag, userFacingName, userFacingNameBackgroundColor } from './UI.js';
@@ -194,50 +194,6 @@ import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 // AgentTool forwards both its own progress events and shell progress
 // events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
 export type Progress = AgentToolProgress | ShellProgress;
-
-function normalizeOptionalAgentString(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-function isAgentModelToken(value: string): value is AgentModelAlias {
-  return (AGENT_MODEL_OPTIONS as readonly string[]).includes(value);
-}
-
-function normalizeAgentInvocationInput({
-  subagentType,
-  model,
-  activeAgents
-}: {
-  subagentType?: string;
-  model?: AgentModelAlias;
-  activeAgents: AgentDefinition[];
-}): {
-  subagentType?: string;
-  model?: AgentModelAlias;
-} {
-  const normalizedSubagentType = normalizeOptionalAgentString(subagentType);
-  if (!normalizedSubagentType) {
-    return {
-      subagentType: undefined,
-      model
-    };
-  }
-
-  const hasMatchingAgent = activeAgents.some(agent => agent.agentType === normalizedSubagentType);
-  if (!isOpenAIResponsesBackendEnabled() || hasMatchingAgent || !isAgentModelToken(normalizedSubagentType)) {
-    return {
-      subagentType: normalizedSubagentType,
-      model
-    };
-  }
-
-  logForDebugging(`[AgentTool] Treating subagent_type='${normalizedSubagentType}' as a misplaced model token and falling back to ${GENERAL_PURPOSE_AGENT.agentType}.`);
-  return {
-    subagentType: GENERAL_PURPOSE_AGENT.agentType,
-    model: model ?? normalizedSubagentType
-  };
-}
 
 export const AgentTool = buildTool({
   async prompt({
