@@ -253,6 +253,40 @@ function formatMultilineDetail(
   return `${label}:\n${clipped}`
 }
 
+function formatRawMultilineDetail(
+  label: string,
+  value: string | undefined,
+  limit = 1200,
+): string | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+
+  const clipped =
+    value.length > limit ? `${value.slice(0, limit)}\n[truncated]` : value
+  return `${label}:\n${clipped}`
+}
+
+const displayOnlyNativeItemTypes = new Set([
+  'custom_tool_call',
+  'code_interpreter_call',
+  'computer_call',
+  'computer_call_output',
+  'file_search_call',
+  'mcp_call',
+  'mcp_list_tools',
+  'mcp_tool_call',
+  'web_search_call',
+])
+
+export function isOpenAIDisplayOnlyNativeItemType(
+  type: string | undefined,
+): type is
+  | OpenAIResponseCustomToolCall['type']
+  | OpenAIResponseBuiltinToolItem['type'] {
+  return type !== undefined && displayOnlyNativeItemTypes.has(type)
+}
+
 function stringifyPreview(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return undefined
@@ -287,6 +321,87 @@ function pushPreviewDetail(
   if (block) {
     lines.push(block)
   }
+}
+
+export function summarizeOpenAINativeStreamItem(
+  item: OpenAIResponseBuiltinToolItem | OpenAIResponseCustomToolCall,
+): string | undefined {
+  const lines = [`[OpenAI native item: ${item.type}]`]
+
+  switch (item.type) {
+    case 'custom_tool_call':
+      pushDetail(lines, 'name', readString(item.name))
+      pushDetail(lines, 'call_id', readString(item.call_id))
+      pushDetail(lines, 'status', readString(item.status))
+      return lines.join('\n')
+    case 'web_search_call': {
+      const action = isRecord(item.action) ? item.action : undefined
+      pushDetail(lines, 'action', readString(action?.type))
+      pushDetail(
+        lines,
+        'query',
+        readString(action?.query) || readStringArray(action?.queries).join(', '),
+      )
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(lines, 'sources', countArray(action?.sources))
+      return lines.join('\n')
+    }
+    case 'file_search_call': {
+      const record = item as Record<string, unknown>
+      pushDetail(
+        lines,
+        'query',
+        readString(record.query) || readString(record.search_query),
+      )
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(lines, 'results', countArray(record.results))
+      return lines.join('\n')
+    }
+    case 'mcp_list_tools': {
+      const record = item as Record<string, unknown>
+      pushDetail(lines, 'server_label', readString(record.server_label))
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(lines, 'tools', countArray(record.tools))
+      return lines.join('\n')
+    }
+    case 'mcp_call':
+    case 'mcp_tool_call': {
+      const record = item as Record<string, unknown>
+      pushDetail(lines, 'server_label', readString(record.server_label))
+      pushDetail(lines, 'name', readString(record.name))
+      pushDetail(lines, 'tool_name', readString(record.tool_name))
+      pushDetail(lines, 'status', readString(item.status))
+      return lines.join('\n')
+    }
+    case 'code_interpreter_call':
+      pushDetail(lines, 'status', readString(item.status))
+      pushDetail(lines, 'outputs', countArray((item as Record<string, unknown>).outputs))
+      return lines.join('\n')
+    case 'computer_call':
+    case 'computer_call_output':
+      pushDetail(lines, 'status', readString(item.status))
+      pushPreviewDetail(lines, 'action', (item as Record<string, unknown>).action, 240)
+      return lines.join('\n')
+    default:
+      return `${lines[0]}\nstatus: ${readString(item.status) ?? 'unknown'}`
+  }
+}
+
+export function buildOpenAICustomToolCallStreamText(
+  item: Pick<OpenAIResponseCustomToolCall, 'type' | 'name' | 'call_id' | 'status' | 'input'>,
+  inputOverride?: string,
+): string | undefined {
+  const summary = summarizeOpenAINativeStreamItem(item)
+  const inputBlock = formatRawMultilineDetail(
+    'input',
+    inputOverride !== undefined ? inputOverride : item.input,
+  )
+
+  if (!summary) {
+    return inputBlock
+  }
+
+  return inputBlock ? `${summary}\n${inputBlock}` : summary
 }
 
 export function summarizeOpenAINativeOutputItem(

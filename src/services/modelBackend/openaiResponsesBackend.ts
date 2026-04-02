@@ -20,16 +20,20 @@ import {
 } from './openaiCodexConfig.js'
 import { fetchOpenAIResponse } from './openaiApi.js'
 import {
+  buildOpenAICustomToolCallStreamText,
   buildOpenAIContentPartKey,
   extractOpenAIResponseMessageBlocks,
   extractOpenAIResponseMessageText,
   extractOpenAIResponseReasoningText,
+  isOpenAIDisplayOnlyNativeItemType,
   parseOpenAIResponseFunctionArguments,
+  summarizeOpenAINativeStreamItem,
   summarizeOpenAINativeOutputItem,
 } from './openaiResponsesOutput.js'
 import type {
   OpenAIResponse,
   OpenAIResponseAnnotation,
+  OpenAIResponseBuiltinToolItem,
   OpenAIResponseCustomToolCall,
   OpenAIResponseFunctionCall,
   OpenAIResponseOutputItem,
@@ -260,6 +264,18 @@ function getOutputIndexForStreamEvent(
   )
 }
 
+function emitTextStreamEvent(
+  index: number,
+  text: string,
+): StreamEventMessage[] {
+  return text
+    ? [
+        createTextBlockStartStreamEvent(index),
+        createTextDeltaStreamEvent(index, text),
+      ]
+    : []
+}
+
 function createAssistantMessagesFromResponse(
   response: OpenAIResponse,
   model: string,
@@ -337,17 +353,7 @@ function createAssistantMessagesFromResponse(
       continue
     }
 
-    if (
-      item.type === 'custom_tool_call' ||
-      item.type === 'code_interpreter_call' ||
-      item.type === 'computer_call' ||
-      item.type === 'computer_call_output' ||
-      item.type === 'file_search_call' ||
-      item.type === 'mcp_call' ||
-      item.type === 'mcp_list_tools' ||
-      item.type === 'mcp_tool_call' ||
-      item.type === 'web_search_call'
-    ) {
+    if (isOpenAIDisplayOnlyNativeItemType(item.type)) {
       const summary = summarizeOpenAINativeOutputItem(item)
       if (!summary) {
         continue
@@ -697,10 +703,17 @@ export async function* runOpenAIResponses(
     const streamedResponse = await streamResponse(url, request, params.signal)
     const outputIndexes = new Map<string, number>()
     const outputItemTypes = new Map<number, string>()
+    // Preserve display-only native items across stream events so we can emit
+    // low-noise progress summaries without changing who actually executes tools.
+    const streamedNativeItems = new Map<
+      number,
+      OpenAIResponseBuiltinToolItem | OpenAIResponseCustomToolCall
+    >()
     const streamedAnnotations = new Map<string, OpenAIResponseAnnotation[]>()
     const startedTextBlockIndexes = new Set<number>()
     const startedThinkingBlockIndexes = new Set<number>()
     const openToolUseBlockIndexes = new Set<number>()
+    const customToolInputStreamedIndexes = new Set<number>()
     const reasoningSummaryPartCounts = new Map<number, number>()
     const reasoningSummarySeenIndexes = new Set<number>()
     let startedAssistantMessage = false
@@ -738,17 +751,19 @@ export async function* runOpenAIResponses(
             yield createToolUseStartStreamEvent(index, functionCall)
           } else if (
             event.item?.type &&
+            isOpenAIDisplayOnlyNativeItemType(event.item.type)
+          ) {
+            streamedNativeItems.set(
+              index,
+              event.item as
+                | OpenAIResponseBuiltinToolItem
+                | OpenAIResponseCustomToolCall,
+            )
+          } else if (
+            event.item?.type &&
             event.item.type !== 'message' &&
             event.item.type !== 'reasoning' &&
-            event.item.type !== 'custom_tool_call' &&
-            event.item.type !== 'code_interpreter_call' &&
-            event.item.type !== 'computer_call' &&
-            event.item.type !== 'computer_call_output' &&
-            event.item.type !== 'file_search_call' &&
-            event.item.type !== 'mcp_call' &&
-            event.item.type !== 'mcp_list_tools' &&
-            event.item.type !== 'mcp_tool_call' &&
-            event.item.type !== 'web_search_call'
+            event.item.type !== 'function_call'
           ) {
             maybeLogResponsesDegradation(
               'unsupported output item',
@@ -873,11 +888,44 @@ export async function* runOpenAIResponses(
         }
         case 'response.custom_tool_call_input.delta':
         case 'response.custom_tool_call_input.done': {
-          maybeLogResponsesDegradation(
-            'unsupported stream event',
-            event.type,
-            'custom tool call streaming is not supported on the local runtime',
-          )
+          const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          const streamedItem = event.item ?? streamedNativeItems.get(index)
+          if (streamedItem) {
+            streamedNativeItems.set(index, streamedItem)
+          }
+
+          if (
+            event.type === 'response.custom_tool_call_input.done' &&
+            customToolInputStreamedIndexes.has(index)
+          ) {
+            break
+          }
+
+          const inputChunk =
+            event.type === 'response.custom_tool_call_input.done'
+              ? event.input || ''
+              : event.delta || ''
+          if (event.type === 'response.custom_tool_call_input.delta' && inputChunk) {
+            customToolInputStreamedIndexes.add(index)
+          }
+          if (!startedTextBlockIndexes.has(index)) {
+            const initialText = streamedItem
+              ? buildOpenAICustomToolCallStreamText(streamedItem, inputChunk)
+              : inputChunk
+            const streamEvents = emitTextStreamEvent(index, initialText)
+            if (streamEvents.length === 0) {
+              break
+            }
+            startedTextBlockIndexes.add(index)
+            for (const streamEvent of streamEvents) {
+              yield streamEvent
+            }
+            break
+          }
+
+          if (inputChunk) {
+            yield createTextDeltaStreamEvent(index, inputChunk)
+          }
           break
         }
         case 'response.output_text.annotation.added': {
@@ -910,6 +958,36 @@ export async function* runOpenAIResponses(
             if (openToolUseBlockIndexes.delete(index)) {
               yield createBlockStopStreamEvent(index)
             }
+          } else if (isOpenAIDisplayOnlyNativeItemType(itemType)) {
+            // Built-in/custom native items stay display-only on this backend,
+            // but surfacing them at item completion avoids a long silent gap
+            // before the final completed-response transcript is materialized.
+            const streamedItem =
+              (event.item as OpenAIResponseOutputItem | undefined) ??
+              streamedNativeItems.get(index)
+            if (
+              streamedItem &&
+              isOpenAIDisplayOnlyNativeItemType(streamedItem.type) &&
+              !startedTextBlockIndexes.has(index)
+            ) {
+              const summary =
+                streamedItem.type === 'custom_tool_call'
+              ? buildOpenAICustomToolCallStreamText(streamedItem)
+                  : summarizeOpenAINativeStreamItem(streamedItem)
+              const streamEvents = emitTextStreamEvent(index, summary || '')
+              if (streamEvents.length > 0) {
+                startedTextBlockIndexes.add(index)
+                for (const streamEvent of streamEvents) {
+                  yield streamEvent
+                }
+              }
+            }
+
+            if (startedTextBlockIndexes.delete(index)) {
+              yield createBlockStopStreamEvent(index)
+            }
+            streamedNativeItems.delete(index)
+            customToolInputStreamedIndexes.delete(index)
           }
           break
         }

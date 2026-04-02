@@ -24,6 +24,7 @@ import {
   extractOpenAIResponseMessageBlocks,
   extractOpenAIResponseMessageText,
   extractOpenAIResponseReasoningText,
+  isOpenAIDisplayOnlyNativeItemType,
   parseOpenAIResponseFunctionArguments,
   summarizeOpenAINativeOutputItem,
 } from '../services/modelBackend/openaiResponsesOutput.js'
@@ -298,17 +299,7 @@ function mapResponsesOutputToBetaMessage(
       continue
     }
 
-    if (
-      output.type === 'custom_tool_call' ||
-      output.type === 'code_interpreter_call' ||
-      output.type === 'computer_call' ||
-      output.type === 'computer_call_output' ||
-      output.type === 'file_search_call' ||
-      output.type === 'mcp_call' ||
-      output.type === 'mcp_list_tools' ||
-      output.type === 'mcp_tool_call' ||
-      output.type === 'web_search_call'
-    ) {
+    if (isOpenAIDisplayOnlyNativeItemType(output.type)) {
       const summary = summarizeOpenAINativeOutputItem(
         output as Parameters<typeof summarizeOpenAINativeOutputItem>[0],
       )

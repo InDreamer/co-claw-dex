@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  buildOpenAICustomToolCallStreamText,
   buildOpenAIContentPartKey,
   extractOpenAIResponseMessageBlocks,
   extractOpenAIResponseReasoningText,
+  isOpenAIDisplayOnlyNativeItemType,
+  summarizeOpenAINativeStreamItem,
   summarizeOpenAINativeOutputItem,
 } from './openaiResponsesOutput.js'
 
@@ -141,5 +144,46 @@ describe('openaiResponsesOutput', () => {
     expect(summary).toContain('query: migration plan')
     expect(summary).toContain('results: 2')
     expect(summary).toContain('result_preview: phase-1.md, phase-2.md')
+  })
+
+  test('marks display-only native item types explicitly', () => {
+    expect(isOpenAIDisplayOnlyNativeItemType('web_search_call')).toBe(true)
+    expect(isOpenAIDisplayOnlyNativeItemType('custom_tool_call')).toBe(true)
+    expect(isOpenAIDisplayOnlyNativeItemType('function_call')).toBe(false)
+  })
+
+  test('builds low-noise stream summaries for native items', () => {
+    const summary = summarizeOpenAINativeStreamItem({
+      type: 'mcp_tool_call',
+      server_label: 'docs',
+      tool_name: 'search',
+      status: 'completed',
+      arguments: {
+        query: 'responses api',
+      },
+    })
+
+    expect(summary).toContain('[OpenAI native item: mcp_tool_call]')
+    expect(summary).toContain('server_label: docs')
+    expect(summary).toContain('tool_name: search')
+    expect(summary).toContain('status: completed')
+    expect(summary).not.toContain('arguments:')
+  })
+
+  test('builds custom tool stream text with inline input body', () => {
+    const summary = buildOpenAICustomToolCallStreamText(
+      {
+        type: 'custom_tool_call',
+        name: 'delegate',
+        call_id: 'ct_1',
+        status: 'in_progress',
+      },
+      'hello world',
+    )
+
+    expect(summary).toContain('[OpenAI native item: custom_tool_call]')
+    expect(summary).toContain('name: delegate')
+    expect(summary).toContain('call_id: ct_1')
+    expect(summary).toContain('input:\nhello world')
   })
 })
