@@ -73,7 +73,7 @@ export async function clearAuthRelatedCaches(): Promise<void> {
 }
 export async function call(): Promise<React.ReactNode> {
   if (isOpenAIResponsesBackendEnabled()) {
-    return <Text>{BRAND_NAME} does not manage OpenAI/Codex credentials directly. Remove OPENAI_API_KEY from your environment or edit ~/.codex/auth.json to disable them.</Text>;
+    return <Text>{BRAND_NAME} does not manage OpenAI/Codex credentials directly. Remove OPENAI_API_KEY from your environment, edit ~/.codex/auth.json, or change COCLAWDEX_CONFIG_PATH if you want to disable this backend.</Text>;
   }
 
   await performLogout({

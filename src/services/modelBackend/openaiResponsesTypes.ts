@@ -4,14 +4,14 @@ export type OpenAIResponseAnnotation = {
 }
 
 export type OpenAIResponseOutputText = {
-  type: 'output_text'
+  type: 'output_text' | 'text'
   text: string
   annotations?: OpenAIResponseAnnotation[]
   logprobs?: unknown[]
 }
 
 export type OpenAIResponseOutputAudio = {
-  type: 'output_audio'
+  type: 'output_audio' | 'audio' | 'audio_transcript' | 'output_audio_transcript'
   audio?: string
   transcript?: string
   [key: string]: unknown
@@ -176,21 +176,25 @@ export type OpenAIResponsesStreamEvent =
       content_index?: number
     }
   | {
-      type: 'response.output_text.delta'
+      type: 'response.output_text.delta' | 'response.text.delta'
       delta?: string
       output_index?: number
       item_id?: string
       content_index?: number
     }
   | {
-      type: 'response.output_text.done'
+      type: 'response.output_text.done' | 'response.text.done'
       text?: string
       output_index?: number
       item_id?: string
       content_index?: number
     }
   | {
-      type: 'response.output_audio.delta' | 'response.output_audio.done'
+      type:
+        | 'response.output_audio.delta'
+        | 'response.output_audio.done'
+        | 'response.audio.delta'
+        | 'response.audio.done'
       delta?: string
       audio?: string
       output_index?: number
@@ -201,6 +205,8 @@ export type OpenAIResponsesStreamEvent =
       type:
         | 'response.output_audio_transcript.delta'
         | 'response.output_audio_transcript.done'
+        | 'response.audio_transcript.delta'
+        | 'response.audio_transcript.done'
       delta?: string
       transcript?: string
       output_index?: number
@@ -208,7 +214,7 @@ export type OpenAIResponsesStreamEvent =
       content_index?: number
     }
   | {
-      type: 'response.output_text.annotation.added'
+      type: 'response.output_text.annotation.added' | 'response.text.annotation.added'
       annotation?: OpenAIResponseAnnotation
       output_index?: number
       item_id?: string

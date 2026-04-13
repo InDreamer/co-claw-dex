@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { normalizeOpenAICompatibleModel } from './openaiModelCatalog.js'
 
 type CodexProviderConfig = {
@@ -8,15 +8,50 @@ type CodexProviderConfig = {
   model: string
   disableResponseStorage: boolean
   baseUrl: string
+  configuredBaseUrl?: string
   wireApi: string
+  wireApiError?: string
   requiresOpenAIAuth: boolean
   promptCacheRetention?: 'in_memory' | '24h'
   modelContextWindow?: number
   reasoningEffort?: OpenAIReasoningEffort
 }
 
-type CodexAuthConfig = {
+export type CodexAuthMode = 'none' | 'api_key' | 'chatgpt'
+
+export type CodexAuthSource =
+  | 'none'
+  | 'OPENAI_API_KEY'
+  | 'auth_json_api_key'
+  | 'auth_json_chatgpt'
+
+export type CodexAuthConfig = {
+  mode: CodexAuthMode
+  source: CodexAuthSource
   openaiApiKey?: string
+  accessToken?: string
+  refreshToken?: string
+  accountId?: string
+  idToken?: string
+  lastRefresh?: string
+  error?: string
+}
+
+export type ResolvedCodexAuthConfig = CodexAuthConfig & {
+  wireApi: string
+  isCompatible: boolean
+  incompatibilityReason?: string
+}
+
+type ParsedCodexAuthFile = {
+  fileOpenaiApiKey?: string
+  authMode?: string
+  accessToken?: string
+  refreshToken?: string
+  accountId?: string
+  idToken?: string
+  lastRefresh?: string
+  error?: string
 }
 
 export type OpenAIReasoningEffort =
@@ -28,17 +63,49 @@ export type OpenAIReasoningEffort =
   | 'xhigh'
 
 let cachedProviderConfig: CodexProviderConfig | null | undefined
-let cachedAuthConfig: CodexAuthConfig | null | undefined
+let cachedParsedAuthFile: ParsedCodexAuthFile | null | undefined
 
 const DEFAULT_MODEL = 'gpt-5.4'
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
+const DEFAULT_CHATGPT_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+const DEFAULT_WIRE_API = 'responses'
 
-function getCodexConfigPath(): string {
-  return join(homedir(), '.codex', 'config.toml')
+function buildUnsupportedWireApiMessage(wireApi: string): string {
+  return `当前配置的 wire_api = "${wireApi}" 无效。OpenAI/Codex 公开 CLI 仅支持 wire_api = "responses"。`
 }
 
-function getCodexAuthPath(): string {
+function trimToUndefined(value: string | undefined | null): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+export function getCodexConfigPath(): string {
+  return (
+    trimToUndefined(process.env.COCLAWDEX_CONFIG_PATH) ||
+    join(homedir(), '.codex', 'config.toml')
+  )
+}
+
+export function getCodexAuthPath(): string {
   return join(homedir(), '.codex', 'auth.json')
+}
+
+export function resolveCodexConfigPathInfo(): {
+  path: string
+  source: 'COCLAWDEX_CONFIG_PATH' | 'default'
+} {
+  const override = trimToUndefined(process.env.COCLAWDEX_CONFIG_PATH)
+  if (override) {
+    return {
+      path: override,
+      source: 'COCLAWDEX_CONFIG_PATH',
+    }
+  }
+
+  return {
+    path: getCodexConfigPath(),
+    source: 'default',
+  }
 }
 
 function readIfExists(path: string): string | null {
@@ -113,6 +180,163 @@ function normalizeBaseUrl(baseUrl: string | undefined): string {
   return trimmed
 }
 
+function normalizeWireApi(
+  wireApi: string | undefined,
+): {
+  wireApi: string
+  wireApiError?: string
+} {
+  const normalized = wireApi?.trim().toLowerCase() || DEFAULT_WIRE_API
+  if (normalized === DEFAULT_WIRE_API) {
+    return { wireApi: DEFAULT_WIRE_API }
+  }
+
+  return {
+    wireApi: normalized,
+    wireApiError: buildUnsupportedWireApiMessage(normalized),
+  }
+}
+
+function loadParsedCodexAuthFile(): ParsedCodexAuthFile {
+  if (cachedParsedAuthFile) return cachedParsedAuthFile
+  if (cachedParsedAuthFile === null) return {}
+
+  const authPath = getCodexAuthPath()
+  const raw = readIfExists(authPath)
+  if (!raw) {
+    cachedParsedAuthFile = null
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      OPENAI_API_KEY?: string
+      auth_mode?: string
+      last_refresh?: string
+      tokens?: {
+        access_token?: string
+        refresh_token?: string
+        account_id?: string
+        id_token?: string
+      }
+    }
+    const authMode = trimToUndefined(parsed.auth_mode)?.toLowerCase()
+    const accessToken = trimToUndefined(parsed.tokens?.access_token)
+    const refreshToken = trimToUndefined(parsed.tokens?.refresh_token)
+    const accountId = trimToUndefined(parsed.tokens?.account_id)
+    const idToken = trimToUndefined(parsed.tokens?.id_token)
+    const parsedFile: ParsedCodexAuthFile = {
+      fileOpenaiApiKey: trimToUndefined(parsed.OPENAI_API_KEY),
+      authMode,
+      accessToken,
+      refreshToken,
+      accountId,
+      idToken,
+      lastRefresh: trimToUndefined(parsed.last_refresh),
+    }
+
+    if (
+      authMode === 'chatgpt' &&
+      (!accessToken || !refreshToken || !accountId)
+    ) {
+      parsedFile.error =
+        `检测到 ${authPath} 使用 auth_mode="chatgpt"，` +
+        '但缺少 tokens.access_token、tokens.refresh_token 或 tokens.account_id。'
+    }
+
+    cachedParsedAuthFile = parsedFile
+    return parsedFile
+  } catch {
+    cachedParsedAuthFile = {
+      error: `无法解析 ${authPath}。请确认它是合法 JSON。`,
+    }
+    return cachedParsedAuthFile
+  }
+}
+
+function getChatGPTAuthCandidate(
+  parsed: ParsedCodexAuthFile,
+): CodexAuthConfig | undefined {
+  if (
+    parsed.authMode === 'chatgpt' &&
+    parsed.accessToken &&
+    parsed.refreshToken &&
+    parsed.accountId
+  ) {
+    return {
+      mode: 'chatgpt',
+      source: 'auth_json_chatgpt',
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
+      accountId: parsed.accountId,
+      idToken: parsed.idToken,
+      lastRefresh: parsed.lastRefresh,
+    }
+  }
+  return undefined
+}
+
+function getEnvApiKeyCandidate(): CodexAuthConfig | undefined {
+  const apiKey = trimToUndefined(process.env.OPENAI_API_KEY)
+  if (!apiKey) {
+    return undefined
+  }
+
+  return {
+    mode: 'api_key',
+    source: 'OPENAI_API_KEY',
+    openaiApiKey: apiKey,
+  }
+}
+
+function getFileApiKeyCandidate(
+  parsed: ParsedCodexAuthFile,
+): CodexAuthConfig | undefined {
+  if (!parsed.fileOpenaiApiKey) {
+    return undefined
+  }
+
+  return {
+    mode: 'api_key',
+    source: 'auth_json_api_key',
+    openaiApiKey: parsed.fileOpenaiApiKey,
+  }
+}
+
+function buildNoAuthConfig(error?: string): CodexAuthConfig {
+  return {
+    mode: 'none',
+    source: 'none',
+    error,
+  }
+}
+
+export function formatCodexAuthSource(source: CodexAuthSource): string {
+  switch (source) {
+    case 'OPENAI_API_KEY':
+      return 'OPENAI_API_KEY'
+    case 'auth_json_api_key':
+      return `${getCodexAuthPath()} (OPENAI_API_KEY)`
+    case 'auth_json_chatgpt':
+      return `${getCodexAuthPath()} (auth_mode="chatgpt")`
+    case 'none':
+    default:
+      return '未配置'
+  }
+}
+
+export function formatCodexAuthMode(mode: CodexAuthMode): string {
+  switch (mode) {
+    case 'api_key':
+      return 'OpenAI API key'
+    case 'chatgpt':
+      return 'ChatGPT/Codex 登录态'
+    case 'none':
+    default:
+      return '未配置'
+  }
+}
+
 export function loadCodexProviderConfig(): CodexProviderConfig {
   if (cachedProviderConfig) return cachedProviderConfig
   if (cachedProviderConfig === null) {
@@ -121,7 +345,9 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
       model: DEFAULT_MODEL,
       disableResponseStorage: true,
       baseUrl: DEFAULT_BASE_URL,
-      wireApi: 'responses',
+      configuredBaseUrl: undefined,
+      wireApi: DEFAULT_WIRE_API,
+      wireApiError: undefined,
       requiresOpenAIAuth: false,
       promptCacheRetention: undefined,
       modelContextWindow: undefined,
@@ -142,13 +368,12 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
   const disableResponseStorage =
     matchBoolean(raw, /^disable_response_storage\s*=\s*(true|false)/m) ?? true
   const providerSection = getProviderSection(raw, providerId)
-  const baseUrl =
-    matchString(providerSection, /^\s*base_url\s*=\s*"([^"]+)"/m) ||
-    process.env.OPENAI_BASE_URL ||
-    DEFAULT_BASE_URL
-  const wireApi =
-    matchString(providerSection, /^\s*wire_api\s*=\s*"([^"]+)"/m) ||
-    'responses'
+  const configuredBaseUrl = normalizeBaseUrl(
+    matchString(providerSection, /^\s*base_url\s*=\s*"([^"]+)"/m),
+  )
+  const { wireApi, wireApiError } = normalizeWireApi(
+    matchString(providerSection, /^\s*wire_api\s*=\s*"([^"]+)"/m),
+  )
   const requiresOpenAIAuth =
     matchBoolean(
       providerSection,
@@ -168,10 +393,7 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
       providerSection,
       /^\s*model_context_window\s*=\s*(\d+)/m,
     ) ||
-    matchInteger(
-      process.env.OPENAI_MODEL_CONTEXT_WINDOW || '',
-      /^(\d+)$/,
-    )
+    matchInteger(process.env.OPENAI_MODEL_CONTEXT_WINDOW || '', /^(\d+)$/)
   const reasoningEffort = normalizeReasoningEffort(
     process.env.OPENAI_REASONING_EFFORT ||
       matchString(raw, /^model_reasoning_effort\s*=\s*"([^"]+)"/m) ||
@@ -185,8 +407,13 @@ export function loadCodexProviderConfig(): CodexProviderConfig {
     providerId,
     model: normalizeOpenAICompatibleModel(topLevelModel) ?? topLevelModel,
     disableResponseStorage,
-    baseUrl: normalizeBaseUrl(baseUrl),
+    baseUrl: configuredBaseUrl,
+    configuredBaseUrl:
+      matchString(providerSection, /^\s*base_url\s*=\s*"([^"]+)"/m) !== undefined
+        ? configuredBaseUrl
+        : undefined,
     wireApi,
+    wireApiError,
     requiresOpenAIAuth,
     promptCacheRetention,
     modelContextWindow,
@@ -204,37 +431,68 @@ export function isOpenAIResponsesBackendEnabled(): boolean {
 }
 
 export function loadCodexAuthConfig(): CodexAuthConfig {
-  if (cachedAuthConfig) return cachedAuthConfig
-  if (cachedAuthConfig === null) return {}
+  const parsed = loadParsedCodexAuthFile()
+  return (
+    getChatGPTAuthCandidate(parsed) ||
+    getEnvApiKeyCandidate() ||
+    getFileApiKeyCandidate(parsed) ||
+    buildNoAuthConfig(parsed.error)
+  )
+}
 
-  const raw = readIfExists(getCodexAuthPath())
-  if (!raw) {
-    cachedAuthConfig = null
-    return {}
+export function resolveSelectedCodexAuth(): ResolvedCodexAuthConfig {
+  const provider = loadCodexProviderConfig()
+  const selectedAuth = loadCodexAuthConfig()
+
+  if (provider.wireApiError) {
+    return {
+      ...selectedAuth,
+      wireApi: provider.wireApi,
+      isCompatible: false,
+      incompatibilityReason: provider.wireApiError,
+      error: provider.wireApiError,
+    }
   }
 
-  try {
-    const parsed = JSON.parse(raw) as { OPENAI_API_KEY?: string }
-    cachedAuthConfig = {
-      openaiApiKey: parsed.OPENAI_API_KEY?.trim() || undefined,
+  if (selectedAuth.mode !== 'none') {
+    return {
+      ...selectedAuth,
+      wireApi: provider.wireApi,
+      isCompatible: true,
     }
-    return cachedAuthConfig
-  } catch {
-    cachedAuthConfig = null
-    return {}
+  }
+
+  return {
+    ...selectedAuth,
+    wireApi: provider.wireApi,
+    isCompatible: false,
+    incompatibilityReason:
+      selectedAuth.error ||
+      `未检测到 OpenAI/Codex 凭据。请设置 OPENAI_API_KEY，或在 ${getCodexAuthPath()} 中提供 ChatGPT/Codex 登录态或 OPENAI_API_KEY。`,
   }
 }
 
 export function getOpenAIApiKey(): string | undefined {
-  const envKey = process.env.OPENAI_API_KEY?.trim()
-  if (envKey) return envKey
-  return loadCodexAuthConfig().openaiApiKey
+  const resolved = resolveSelectedCodexAuth()
+  return resolved.isCompatible && resolved.mode === 'api_key'
+    ? resolved.openaiApiKey
+    : undefined
 }
 
-export function resolveOpenAIBaseUrl(): string {
-  return normalizeBaseUrl(
-    process.env.OPENAI_BASE_URL || loadCodexProviderConfig().baseUrl,
-  )
+export function resolveOpenAIBaseUrl(
+  auth = resolveSelectedCodexAuth(),
+): string {
+  const envBaseUrl = trimToUndefined(process.env.OPENAI_BASE_URL)
+  if (envBaseUrl) {
+    return normalizeBaseUrl(envBaseUrl)
+  }
+
+  const provider = loadCodexProviderConfig()
+  if (provider.configuredBaseUrl) {
+    return provider.configuredBaseUrl
+  }
+
+  return auth.mode === 'chatgpt' ? DEFAULT_CHATGPT_BASE_URL : DEFAULT_BASE_URL
 }
 
 export function shouldUseOpenAIOfficialClientHeaders(): boolean {
@@ -303,4 +561,58 @@ export function resolveOpenAIReasoningEffort():
     process.env.OPENAI_REASONING_EFFORT ||
       loadCodexProviderConfig().reasoningEffort,
   )
+}
+
+export function invalidateCodexAuthCache(): void {
+  cachedParsedAuthFile = undefined
+}
+
+export function persistChatGPTAuthRefresh(update: {
+  accessToken: string
+  refreshToken: string
+  accountId: string
+  idToken?: string
+  lastRefresh?: string
+}): void {
+  const authPath = getCodexAuthPath()
+  const raw = readIfExists(authPath)
+  if (!raw) {
+    throw new Error(`未找到 ${authPath}，无法回写 ChatGPT/Codex 登录态。`)
+  }
+
+  let parsed: {
+    OPENAI_API_KEY?: string
+    auth_mode?: string
+    last_refresh?: string
+    tokens?: {
+      access_token?: string
+      refresh_token?: string
+      account_id?: string
+      id_token?: string
+    }
+  }
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(`无法解析 ${authPath}，无法回写 ChatGPT/Codex 登录态。`)
+  }
+
+  const next = {
+    ...parsed,
+    auth_mode: 'chatgpt',
+    last_refresh: update.lastRefresh || new Date().toISOString(),
+    tokens: {
+      ...(parsed.tokens ?? {}),
+      access_token: update.accessToken,
+      refresh_token: update.refreshToken,
+      account_id: update.accountId,
+      ...(update.idToken !== undefined
+        ? { id_token: update.idToken }
+        : {}),
+    },
+  }
+
+  mkdirSync(dirname(authPath), { recursive: true })
+  writeFileSync(authPath, JSON.stringify(next, null, 2), 'utf8')
+  invalidateCodexAuthCache()
 }

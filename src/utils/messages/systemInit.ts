@@ -13,7 +13,7 @@ import {
 } from 'src/tools/AgentTool/constants.js'
 import {
   isOpenAIResponsesBackendEnabled,
-  loadCodexAuthConfig,
+  resolveSelectedCodexAuth,
 } from 'src/services/modelBackend/openaiCodexConfig.js'
 import { getAnthropicApiKeyWithSource } from '../auth.js'
 import { getCwd } from '../cwd.js'
@@ -58,12 +58,17 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
   const settings = getSettings_DEPRECATED()
   const outputStyle = settings?.outputStyle ?? DEFAULT_OUTPUT_STYLE_NAME
 
+  const openAIAuth = isOpenAIResponsesBackendEnabled()
+    ? resolveSelectedCodexAuth()
+    : null
   const apiKeySource = isOpenAIResponsesBackendEnabled()
-    ? process.env.OPENAI_API_KEY?.trim()
-      ? 'OPENAI_API_KEY'
-      : loadCodexAuthConfig().openaiApiKey
-        ? '~/.codex/auth.json'
-        : 'none'
+    ? openAIAuth?.mode === 'chatgpt'
+      ? 'oauth'
+      : openAIAuth?.source === 'OPENAI_API_KEY'
+        ? 'project'
+        : openAIAuth?.source === 'auth_json_api_key'
+          ? 'user'
+          : 'none'
     : getAnthropicApiKeyWithSource().source
 
   const initMessage: SDKMessage = {
@@ -102,6 +107,13 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
     ;(initMessage as Record<string, unknown>).messaging_socket_path =
       require('../udsMessaging.js').getUdsMessagingSocketPath()
     /* eslint-enable @typescript-eslint/no-require-imports */
+  }
+  if (openAIAuth) {
+    ;(initMessage as Record<string, unknown>).openai_auth_mode = openAIAuth.mode
+    ;(initMessage as Record<string, unknown>).openai_auth_source =
+      openAIAuth.source
+    ;(initMessage as Record<string, unknown>).openai_wire_api =
+      openAIAuth.wireApi
   }
   initMessage.fast_mode_state = getFastModeState(inputs.model, inputs.fastMode)
   return initMessage
