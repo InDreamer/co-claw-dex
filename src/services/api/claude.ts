@@ -145,7 +145,6 @@ import type { QuerySource } from 'src/constants/querySource.js'
 import type { Notification } from 'src/context/notifications.js'
 import { addToTotalSessionCost } from 'src/cost-tracker.js'
 import {
-  getOpenAIApiKey,
   isOpenAIResponsesBackendEnabled,
   resolveOpenAIBaseUrl,
   resolveOpenAIModel,
@@ -546,6 +545,13 @@ export async function verifyApiKey(
 
   if (isOpenAIResponsesBackendEnabled()) {
     try {
+      const authOverride = {
+        mode: 'api_key' as const,
+        source: 'OPENAI_API_KEY' as const,
+        wireApi: 'responses',
+        isCompatible: true,
+        openaiApiKey: apiKey,
+      }
       const requestBody = {
         model: resolveOpenAIModel(undefined),
         input: [
@@ -557,14 +563,14 @@ export async function verifyApiKey(
         max_output_tokens: 8,
         store: false,
       }
-      const response = await fetch(`${resolveOpenAIBaseUrl()}/responses`, {
+      const response = await fetch(`${resolveOpenAIBaseUrl(authOverride)}/responses`, {
         method: 'POST',
         headers: await buildOpenAIRequestHeaders(
-          apiKey,
           {
             accept: 'application/json',
           },
           requestBody,
+          authOverride,
         ),
         body: jsonStringify(requestBody),
       })

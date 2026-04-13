@@ -12,7 +12,7 @@ import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { Box } from '../../ink.js';
 import { Text } from '../../ink.js';
 import { refreshGrowthBookAfterAuthChange } from '../../services/analytics/growthbook.js';
-import { getOpenAIApiKey, isOpenAIResponsesBackendEnabled } from '../../services/modelBackend/openaiCodexConfig.js';
+import { formatCodexAuthMode, isOpenAIResponsesBackendEnabled, loadCodexProviderConfig, resolveSelectedCodexAuth } from '../../services/modelBackend/openaiCodexConfig.js';
 import { refreshPolicyLimits } from '../../services/policyLimits/index.js';
 import { refreshRemoteManagedSettings } from '../../services/remoteManagedSettings/index.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
@@ -110,16 +110,17 @@ function OpenAILoginNotice({
 }: {
   onDone: () => void
 }): React.ReactNode {
-  const hasKey = Boolean(getOpenAIApiKey())
+  const provider = loadCodexProviderConfig()
+  const auth = resolveSelectedCodexAuth()
   return <Dialog title="Login" onCancel={onDone} color="permission" inputGuide={_temp}>
       <Box flexDirection="column" gap={1}>
         <Text>
-          {BRAND_NAME} is using the OpenAI/Codex Responses backend.
+          {BRAND_NAME} is using the OpenAI/Codex backend.
         </Text>
-        {hasKey ? <Text color="success">
-            Credentials are already configured. No browser login is required.
+        {auth.isCompatible ? <Text color="success">
+            Detected {formatCodexAuthMode(auth.mode)} for <Text bold>{provider.wireApi}</Text>. No browser login is required.
           </Text> : <Text color="warning">
-            No OpenAI/Codex API key is configured. Set <Text bold>OPENAI_API_KEY</Text> or add it to <Text bold>~/.codex/auth.json</Text>.
+            {auth.incompatibilityReason ?? 'No compatible OpenAI/Codex credential was detected.'}
           </Text>}
         <Text dimColor>
           Press Esc to close. Use <Text bold>claude auth status</Text> for full credential details.

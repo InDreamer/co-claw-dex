@@ -32,9 +32,13 @@ The canonical implementation truth now lives in the governed `docs/` tree. Histo
 
 - Preserves the Claude Code-style terminal experience instead of rebuilding the agent stack from scratch
 - Uses an OpenAI/Codex-compatible Responses backend as the default model runtime
-- Reuses Codex-style local auth and config sources such as `OPENAI_API_KEY`, `~/.codex/auth.json`, and `~/.codex/config.toml`
+- Reuses Codex-style local auth and config sources such as `~/.codex/auth.json`, `OPENAI_API_KEY`, `~/.codex/config.toml`, and `COCLAWDEX_CONFIG_PATH`
+- Uses the same `responses` wire API for both ChatGPT/Codex login sessions and API-key-based access
+- Selects credentials in a fixed priority order: ChatGPT/Codex login session, then environment `OPENAI_API_KEY`, then `OPENAI_API_KEY` stored in `~/.codex/auth.json`
+- Switches the default OpenAI base URL dynamically based on the selected credential source
 - Translates Responses streaming events back into the existing internal stream format so the CLI behavior stays familiar
 - Translates function calling into the existing tool-use flow, including stateless replay for providers that do not reliably support `previous_response_id`
+- Handles official Codex streaming variants such as `response.text.delta` and can synthesize a final assistant reply when the streamed text is present but `response.completed.output` is empty
 - Keeps legacy Claude-style model aliases for compatibility with existing workflows
 - Disables official Anthropic install/update flows for this fork distribution
 - Ships with source-first helper scripts for build, smoke testing, local activation, and rollback
@@ -46,8 +50,11 @@ This repository now builds and runs as a usable coding agent platform.
 What is already migrated:
 
 - OpenAI/Codex-compatible Responses backend is the default model path
-- Credentials are loaded from `OPENAI_API_KEY` or `~/.codex/auth.json`
-- Provider settings are loaded from `~/.codex/config.toml`
+- Credentials are loaded from `~/.codex/auth.json` and `OPENAI_API_KEY`, with ChatGPT/Codex login sessions preferred over API keys
+- Provider settings are loaded from `COCLAWDEX_CONFIG_PATH` when set, otherwise `~/.codex/config.toml`
+- `wire_api = "responses"` is the only supported OpenAI/Codex wire API mode
+- The default base URL is selected automatically: ChatGPT/Codex login sessions use `https://chatgpt.com/backend-api/codex`, API keys use `https://api.openai.com/v1`
+- ChatGPT/Codex login sessions support proactive token refresh and a single refresh+retry on `401`
 - Responses streaming is translated into the existing internal message stream
 - Function calling is translated into the existing internal tool-use flow
 - Legacy Claude-style model aliases are preserved for compatibility
@@ -59,6 +66,29 @@ What is already migrated:
 npm install
 npm run build
 node cli.js --help
+```
+
+Create a dedicated Codex config file instead of modifying your default `~/.codex/config.toml`:
+
+```toml
+model_provider = "openai"
+model = "gpt-5.4"
+disable_response_storage = true
+
+[model_providers.openai]
+wire_api = "responses"
+```
+
+Point the fork at that file:
+
+```bash
+export COCLAWDEX_CONFIG_PATH="$HOME/.codex/config_for_coclawdex.toml"
+```
+
+PowerShell:
+
+```powershell
+$env:COCLAWDEX_CONFIG_PATH = "$HOME\\.codex\\config_for_coclawdex.toml"
 ```
 
 Basic verification:
@@ -75,6 +105,8 @@ npm run activate-cli
 npm run restore-cli
 ```
 
+Those helper scripts currently target a Homebrew-style macOS installation path. On Windows, prefer invoking `node cli.js` directly or creating your own `claude.cmd` wrapper that sets `COCLAWDEX_CONFIG_PATH` before forwarding to `node cli.js`.
+
 One-command smoke check:
 
 ```bash
@@ -85,14 +117,22 @@ npm run smoke
 
 This fork reuses Codex-style local configuration.
 
-Expected credential sources:
+Supported credential sources:
 
-- `OPENAI_API_KEY`
-- `~/.codex/auth.json`
+- ChatGPT/Codex login session in `~/.codex/auth.json`
+- `OPENAI_API_KEY` from the environment
+- `OPENAI_API_KEY` stored in `~/.codex/auth.json`
 
-Expected provider settings source:
+Credential selection priority is fixed:
 
-- `~/.codex/config.toml`
+1. ChatGPT/Codex login session from `~/.codex/auth.json`
+2. Environment `OPENAI_API_KEY`
+3. `OPENAI_API_KEY` stored in `~/.codex/auth.json`
+
+Provider settings source priority:
+
+1. `COCLAWDEX_CONFIG_PATH`
+2. `~/.codex/config.toml`
 
 Typical values used by this fork:
 
@@ -109,9 +149,16 @@ model = "gpt-5.4"
 disable_response_storage = true
 
 [model_providers.openai]
-base_url = "https://api.openai.com/v1"
 wire_api = "responses"
 ```
+
+Notes:
+
+- `wire_api = "responses"` is required. Other OpenAI/Codex wire API values are rejected explicitly.
+- If `base_url` is omitted, the runtime chooses a default based on the selected credential:
+  - ChatGPT/Codex login session => `https://chatgpt.com/backend-api/codex`
+  - API key => `https://api.openai.com/v1`
+- If `base_url` is set explicitly, that value still wins.
 
 ## Architecture
 
@@ -132,6 +179,8 @@ This means most of the original CLI, Hermes-style component behavior, and tool p
 - `cli.js` at the repo root is a thin launcher for the built artifact in `dist/cli.js`
 - This fork is intended to be run from source, not upgraded from official Anthropic distribution channels
 - `claude update` and `claude install` are intentionally disabled from pulling official Anthropic releases in this fork
+- `claude auth status --text` is the quickest way to confirm which config file, auth source, and base URL are currently active
+- If you change `src/` files, rebuild with `npm run build` before running `node cli.js` again
 
 ## Origin
 

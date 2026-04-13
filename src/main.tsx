@@ -229,7 +229,7 @@ function getPrintOptionDescription(): string {
 
 function getBareModeDescription(): string {
   if (isOpenAIBackendEnabledForCli()) {
-    return 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. OpenAI/Codex auth is strictly OPENAI_API_KEY or ~/.codex/auth.json for the Responses backend (other providers still use their own credentials). Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.'
+    return 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. OpenAI/Codex now always uses wire_api="responses": it prefers the ChatGPT/Codex login session from ~/.codex/auth.json, then OPENAI_API_KEY, then the OPENAI_API_KEY entry in ~/.codex/auth.json. Use COCLAWDEX_CONFIG_PATH to point at an alternate config file. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.'
   }
   return 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.'
 }
@@ -243,7 +243,7 @@ function getModelOptionDescription(): string {
 
 function getAuthLoginDescription(): string {
   return isOpenAIBackendEnabledForCli()
-    ? 'Validate OpenAI/Codex API credentials from OPENAI_API_KEY or ~/.codex/auth.json'
+    ? 'Inspect OpenAI/Codex credentials from ~/.codex/auth.json, OPENAI_API_KEY, and COCLAWDEX_CONFIG_PATH'
     : 'Sign in to your Anthropic account'
 }
 

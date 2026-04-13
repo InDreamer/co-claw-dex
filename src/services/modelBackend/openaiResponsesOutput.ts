@@ -7,6 +7,27 @@ import type {
   OpenAIResponseReasoningItem,
 } from './openaiResponsesTypes.js'
 
+const MESSAGE_TEXT_PART_TYPES = new Set([
+  'output_text',
+  'text',
+  'output_audio',
+  'audio',
+  'audio_transcript',
+  'output_audio_transcript',
+  'refusal',
+])
+
+const REASONING_TEXT_PART_TYPES = new Set([
+  'output_text',
+  'text',
+  'reasoning_text',
+  'summary_text',
+])
+
+function isSupportedMessageTextPartType(type: string | undefined): boolean {
+  return Boolean(type && MESSAGE_TEXT_PART_TYPES.has(type))
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -74,7 +95,7 @@ export function extractOpenAIResponseMessageText(
     }
 
     const type = typeof part.type === 'string' ? part.type : undefined
-    if (type !== 'output_text' && type !== 'output_audio' && type !== 'refusal') {
+    if (!isSupportedMessageTextPartType(type)) {
       continue
     }
 
@@ -120,7 +141,7 @@ export function extractOpenAIResponseMessageBlocks(
     }
 
     const type = typeof part.type === 'string' ? part.type : undefined
-    if (type !== 'output_text' && type !== 'output_audio' && type !== 'refusal') {
+    if (!isSupportedMessageTextPartType(type)) {
       continue
     }
 
@@ -159,7 +180,7 @@ export function extractOpenAIResponseReasoningText(
 
   const contentSegments = extractTextSegments(
     item.content,
-    new Set(['output_text', 'reasoning_text', 'summary_text']),
+    REASONING_TEXT_PART_TYPES,
   )
   if (contentSegments.length > 0) {
     return contentSegments.join('\n\n').trim()

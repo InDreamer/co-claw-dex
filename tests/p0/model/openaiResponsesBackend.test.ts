@@ -2714,6 +2714,224 @@ describe('openaiResponsesBackend fork contracts', () => {
     ])
   })
 
+  it('[P0:model] accepts the official Codex text content shape when response.completed uses content.type = "text"', async () => {
+    fetchOpenAIResponseMock.mockResolvedValue(
+      makeSseResponse([
+        { type: 'response.created' },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp-text-content-1',
+            output: [
+              {
+                type: 'message',
+                content: [{ type: 'text', text: 'hello' }],
+              },
+            ],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+            },
+          },
+        },
+      ]),
+    )
+
+    const outputs = await collect(
+      runOpenAIResponses({
+        messages: [],
+        systemPrompt: ['system'],
+        tools: [],
+        options: { model: 'sonnet' },
+        signal: new AbortController().signal,
+      } as any),
+    )
+
+    expect(outputs.at(-1)).toEqual({
+      type: 'assistant',
+      requestId: 'resp-text-content-1',
+      message: {
+        id: 'resp-text-content-1',
+        role: 'assistant',
+        model: 'gpt-5.2',
+        usage: expect.objectContaining({
+          input_tokens: 1,
+          output_tokens: 1,
+        }),
+        content: [{ type: 'text', text: 'hello', citations: [] }],
+      },
+    })
+  })
+
+  it('[P0:model] accepts official Codex stream events that use response.text.delta instead of response.output_text.delta', async () => {
+    fetchOpenAIResponseMock.mockResolvedValue(
+      makeSseResponse([
+        { type: 'response.created' },
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item_id: 'msg-item-text-1',
+          item: { type: 'message' },
+        },
+        {
+          type: 'response.content_part.added',
+          item_id: 'msg-item-text-1',
+          output_index: 0,
+          content_index: 0,
+          part: { type: 'text' },
+        },
+        {
+          type: 'response.text.delta',
+          item_id: 'msg-item-text-1',
+          output_index: 0,
+          content_index: 0,
+          delta: 'hello',
+        },
+        {
+          type: 'response.text.done',
+          item_id: 'msg-item-text-1',
+          output_index: 0,
+          content_index: 0,
+          text: 'hello',
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp-text-stream-1',
+            output: [
+              {
+                type: 'message',
+                content: [{ type: 'text', text: 'hello' }],
+              },
+            ],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+            },
+          },
+        },
+      ]),
+    )
+
+    const outputs = await collect(
+      runOpenAIResponses({
+        messages: [],
+        systemPrompt: ['system'],
+        tools: [],
+        options: { model: 'sonnet' },
+        signal: new AbortController().signal,
+      } as any),
+    )
+
+    expect(outputs).toContainEqual({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+    })
+    expect(outputs.at(-1)).toEqual({
+      type: 'assistant',
+      requestId: 'resp-text-stream-1',
+      message: {
+        id: 'resp-text-stream-1',
+        role: 'assistant',
+        model: 'gpt-5.2',
+        usage: expect.objectContaining({
+          input_tokens: 1,
+          output_tokens: 1,
+        }),
+        content: [{ type: 'text', text: 'hello', citations: [] }],
+      },
+    })
+  })
+
+  it('[P0:model] synthesizes the final assistant message from streamed text when Codex completes with output = []', async () => {
+    fetchOpenAIResponseMock.mockResolvedValue(
+      makeSseResponse([
+        { type: 'response.created' },
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item_id: 'msg-item-empty-complete-1',
+          item: { type: 'message' },
+        },
+        {
+          type: 'response.content_part.added',
+          item_id: 'msg-item-empty-complete-1',
+          output_index: 0,
+          content_index: 0,
+          part: { type: 'output_text' },
+        },
+        {
+          type: 'response.output_text.delta',
+          item_id: 'msg-item-empty-complete-1',
+          output_index: 0,
+          content_index: 0,
+          delta: 'hello',
+        },
+        {
+          type: 'response.output_text.done',
+          item_id: 'msg-item-empty-complete-1',
+          output_index: 0,
+          content_index: 0,
+          text: 'hello',
+        },
+        {
+          type: 'response.output_item.done',
+          item_id: 'msg-item-empty-complete-1',
+          output_index: 0,
+          item: { type: 'message' },
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp-empty-output-after-stream-1',
+            output: [],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+            },
+          },
+        },
+      ]),
+    )
+
+    const outputs = await collect(
+      runOpenAIResponses({
+        messages: [],
+        systemPrompt: ['system'],
+        tools: [],
+        options: { model: 'sonnet' },
+        signal: new AbortController().signal,
+      } as any),
+    )
+
+    expect(outputs).toContainEqual({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+    })
+    expect(outputs.at(-1)).toEqual({
+      type: 'assistant',
+      requestId: 'resp-empty-output-after-stream-1',
+      message: {
+        id: 'resp-empty-output-after-stream-1',
+        role: 'assistant',
+        model: 'gpt-5.2',
+        usage: expect.objectContaining({
+          input_tokens: 1,
+          output_tokens: 1,
+        }),
+        content: [{ type: 'text', text: 'hello', citations: [] }],
+      },
+    })
+  })
+
   it('[P0:model] reports a stable assistant API error when the SSE stream ends without a completed payload', async () => {
     fetchOpenAIResponseMock.mockResolvedValue(
       makeSseResponse([

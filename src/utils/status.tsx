@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import figures from 'figures';
 import * as React from 'react';
 import { color, Text } from '../ink.js';
-import { loadCodexAuthConfig, loadCodexProviderConfig, resolveOpenAIBaseUrl, resolveOpenAIModel, isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js';
+import { formatCodexAuthMode, formatCodexAuthSource, loadCodexAuthConfig, loadCodexProviderConfig, resolveSelectedCodexAuth, resolveCodexConfigPathInfo, resolveOpenAIBaseUrl, resolveOpenAIModel, isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js';
 import type { MCPServerConnection } from '../services/mcp/types.js';
 import { getAccountInformation, isClaudeAISubscriber } from './auth.js';
 import { getLargeMemoryFiles, getMemoryFiles, MAX_MEMORY_CHARACTER_COUNT } from './claudemd.js';
@@ -200,22 +200,42 @@ export async function buildInstallationHealthDiagnostics(): Promise<Diagnostic[]
 }
 export function buildAccountProperties(): Property[] {
   if (isOpenAIResponsesBackendEnabled()) {
-    const auth = loadCodexAuthConfig()
-    const apiKeySource = process.env.OPENAI_API_KEY?.trim()
-      ? 'OPENAI_API_KEY'
-      : auth.openaiApiKey
-        ? '~/.codex/auth.json'
-        : 'not configured'
-    return [
+    const detectedAuth = loadCodexAuthConfig()
+    const provider = loadCodexProviderConfig()
+    const selectedAuth = resolveSelectedCodexAuth()
+    const properties: Property[] = [
       {
         label: 'Login method',
-        value: 'OpenAI/Codex API key',
+        value: formatCodexAuthMode(selectedAuth.mode),
       },
       {
-        label: 'API key',
-        value: apiKeySource,
+        label: 'Detected auth',
+        value:
+          detectedAuth.source === 'none'
+            ? formatCodexAuthMode(detectedAuth.mode)
+            : `${formatCodexAuthMode(detectedAuth.mode)} (${formatCodexAuthSource(detectedAuth.source)})`,
+      },
+      {
+        label: 'Selected auth',
+        value:
+          selectedAuth.source === 'none'
+            ? formatCodexAuthMode(selectedAuth.mode)
+            : `${formatCodexAuthMode(selectedAuth.mode)} (${formatCodexAuthSource(selectedAuth.source)})`,
       },
     ]
+    if (selectedAuth.lastRefresh) {
+      properties.push({
+        label: 'Last refresh',
+        value: selectedAuth.lastRefresh,
+      })
+    }
+    if (selectedAuth.incompatibilityReason) {
+      properties.push({
+        label: 'Status',
+        value: selectedAuth.incompatibilityReason,
+      })
+    }
+    return properties
   }
 
   const accountInfo = getAccountInformation();
@@ -260,6 +280,7 @@ export function buildAccountProperties(): Property[] {
 export function buildAPIProviderProperties(): Property[] {
   if (isOpenAIResponsesBackendEnabled()) {
     const provider = loadCodexProviderConfig()
+    const configPathInfo = resolveCodexConfigPathInfo()
     const modelId = resolveOpenAIModel(undefined)
     const modelLabel = renderModelName(modelId)
     return [
@@ -278,6 +299,14 @@ export function buildAPIProviderProperties(): Property[] {
       {
         label: 'Wire API',
         value: provider.wireApi,
+      },
+      {
+        label: 'Config path',
+        value: configPathInfo.path,
+      },
+      {
+        label: 'Config source',
+        value: configPathInfo.source,
       },
     ]
   }

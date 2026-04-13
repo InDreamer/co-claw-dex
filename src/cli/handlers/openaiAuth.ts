@@ -2,43 +2,26 @@
 
 import { BRAND_NAME } from '../../constants/brand.js'
 import {
-  getOpenAIApiKey,
+  formatCodexAuthMode,
+  formatCodexAuthSource,
+  getCodexAuthPath,
   loadCodexAuthConfig,
   loadCodexProviderConfig,
+  resolveSelectedCodexAuth,
+  resolveCodexConfigPathInfo,
   resolveOpenAIBaseUrl,
   resolveOpenAIModel,
   shouldStoreOpenAIResponses,
 } from '../../services/modelBackend/openaiCodexConfig.js'
-import { buildOpenAIRequestHeaders } from '../../services/modelBackend/openaiApi.js'
+import { fetchOpenAIResponse } from '../../services/modelBackend/openaiApi.js'
 import { errorMessage } from '../../utils/errors.js'
 import { renderModelName } from '../../utils/model/model.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 
-type ApiKeySource = 'OPENAI_API_KEY' | '~/.codex/auth.json' | 'none'
-
-function getApiKeySource(): ApiKeySource {
-  if (process.env.OPENAI_API_KEY?.trim()) {
-    return 'OPENAI_API_KEY'
-  }
-  if (loadCodexAuthConfig().openaiApiKey) {
-    return '~/.codex/auth.json'
-  }
-  return 'none'
-}
-
-async function validateConfiguredKey(): Promise<{
+async function validateConfiguredCredential(): Promise<{
   ok: boolean
   error?: string
 }> {
-  const apiKey = getOpenAIApiKey()
-  if (!apiKey) {
-    return {
-      ok: false,
-      error:
-        'No API key is configured. Expected OPENAI_API_KEY or ~/.codex/auth.json.',
-    }
-  }
-
   try {
     const requestBody = {
       model: resolveOpenAIModel(undefined),
@@ -51,35 +34,14 @@ async function validateConfiguredKey(): Promise<{
       max_output_tokens: 8,
       store: false,
     }
-    const response = await fetch(`${resolveOpenAIBaseUrl()}/responses`, {
+    await fetchOpenAIResponse('/responses', {
       method: 'POST',
-      headers: await buildOpenAIRequestHeaders(
-        apiKey,
-        {
-          accept: 'application/json',
-        },
-        requestBody,
-      ),
-      body: jsonStringify(requestBody),
+      headers: {
+        accept: 'application/json',
+      },
+      body: requestBody,
     })
-
-    if (response.ok) {
-      return { ok: true }
-    }
-
-    const text = await response.text()
-    let message = text
-    try {
-      const parsed = JSON.parse(text) as { error?: { message?: string } }
-      message = parsed.error?.message || text
-    } catch {
-      // Fall back to raw text
-    }
-
-    return {
-      ok: false,
-      error: message || `Responses request failed with status ${response.status}`,
-    }
+    return { ok: true }
   } catch (error) {
     return { ok: false, error: errorMessage(error) }
   }
@@ -87,32 +49,55 @@ async function validateConfiguredKey(): Promise<{
 
 function getStatusPayload() {
   const provider = loadCodexProviderConfig()
-  const apiKeySource = getApiKeySource()
+  const rawAuth = loadCodexAuthConfig()
+  const selectedAuth = resolveSelectedCodexAuth()
+  const configPathInfo = resolveCodexConfigPathInfo()
 
   return {
-    loggedIn: apiKeySource !== 'none',
-    authMethod: apiKeySource === 'none' ? 'none' : 'openai_api_key',
+    loggedIn: selectedAuth.isCompatible,
+    ready: selectedAuth.isCompatible,
+    authMethod:
+      selectedAuth.mode === 'none'
+        ? 'none'
+        : selectedAuth.mode === 'chatgpt'
+          ? 'chatgpt_login'
+          : 'openai_api_key',
     apiProvider: 'openaiResponses',
     providerId: provider.providerId,
     baseUrl: resolveOpenAIBaseUrl(),
     model: resolveOpenAIModel(undefined),
     wireApi: provider.wireApi,
     storeResponses: shouldStoreOpenAIResponses(),
-    apiKeySource: apiKeySource === 'none' ? null : apiKeySource,
+    configPath: configPathInfo.path,
+    configSource: configPathInfo.source,
+    authPath: getCodexAuthPath(),
+    detectedAuthMode: rawAuth.mode,
+    detectedAuthSource:
+      rawAuth.source === 'none' ? null : formatCodexAuthSource(rawAuth.source),
+    selectedAuthMode: selectedAuth.mode,
+    selectedAuthSource:
+      selectedAuth.source === 'none'
+        ? null
+        : formatCodexAuthSource(selectedAuth.source),
+    lastRefresh: rawAuth.lastRefresh ?? selectedAuth.lastRefresh ?? null,
+    error:
+      selectedAuth.incompatibilityReason ||
+      selectedAuth.error ||
+      rawAuth.error ||
+      null,
+    transportStatus: 'ready',
   }
 }
 
 export async function authLogin(): Promise<void> {
   const status = getStatusPayload()
+
   if (!status.loggedIn) {
-    process.stderr.write(
-      `${BRAND_NAME} uses OpenAI/Codex-style file or environment credentials.\n` +
-        'Set OPENAI_API_KEY or add OPENAI_API_KEY to ~/.codex/auth.json, then retry.\n',
-    )
+    process.stderr.write(`${status.error ?? 'No OpenAI/Codex credential is configured.'}\n`)
     process.exit(1)
   }
 
-  const validation = await validateConfiguredKey()
+  const validation = await validateConfiguredCredential()
   if (!validation.ok) {
     process.stderr.write(
       `Configured OpenAI/Codex credentials failed validation: ${validation.error}\n`,
@@ -134,7 +119,7 @@ export async function authStatus(opts: {
 
   if (opts.text) {
     const modelLabel = renderModelName(status.model)
-    process.stdout.write(`Backend: OpenAI/Codex Responses\n`)
+    process.stdout.write(`Backend: OpenAI/Codex\n`)
     process.stdout.write(`Provider: ${status.providerId}\n`)
     process.stdout.write(
       `Model: ${modelLabel === status.model ? status.model : `${modelLabel} (${status.model})`}\n`,
@@ -142,13 +127,21 @@ export async function authStatus(opts: {
     process.stdout.write(`Base URL: ${status.baseUrl}\n`)
     process.stdout.write(`Wire API: ${status.wireApi}\n`)
     process.stdout.write(`Store responses: ${status.storeResponses}\n`)
+    process.stdout.write(`Config path: ${status.configPath}\n`)
+    process.stdout.write(`Config source: ${status.configSource}\n`)
+    process.stdout.write(`Auth path: ${status.authPath}\n`)
     process.stdout.write(
-      `API key: ${status.apiKeySource ?? 'not configured'}\n`,
+      `Detected auth: ${formatCodexAuthMode(status.detectedAuthMode)} (${status.detectedAuthSource ?? 'not configured'})\n`,
     )
-    if (!status.loggedIn) {
-      process.stdout.write(
-        `Not configured. Set OPENAI_API_KEY or ~/.codex/auth.json.\n`,
-      )
+    process.stdout.write(
+      `Selected auth: ${formatCodexAuthMode(status.selectedAuthMode)} (${status.selectedAuthSource ?? 'not configured'})\n`,
+    )
+    if (status.lastRefresh) {
+      process.stdout.write(`Last refresh: ${status.lastRefresh}\n`)
+    }
+    process.stdout.write(`Transport: ${status.transportStatus}\n`)
+    if (status.error) {
+      process.stdout.write(`Status: ${status.error}\n`)
     }
   } else {
     process.stdout.write(jsonStringify(status, null, 2) + '\n')
@@ -160,7 +153,7 @@ export async function authStatus(opts: {
 export async function authLogout(): Promise<void> {
   process.stdout.write(
     `${BRAND_NAME} does not manage OpenAI/Codex credentials directly.\n` +
-      'Remove OPENAI_API_KEY from the environment or edit ~/.codex/auth.json if you want to disable this backend.\n',
+      `Remove OPENAI_API_KEY from the environment or edit ${getCodexAuthPath()} if you want to disable this backend.\n`,
   )
   process.exit(0)
 }

@@ -5,7 +5,7 @@ import { setupTerminal, shouldOfferTerminalSetup } from '../commands/terminalSet
 import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeybindings.js';
 import { Box, Link, Newline, Text, useTheme } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
-import { getOpenAIApiKey, isOpenAIResponsesBackendEnabled } from '../services/modelBackend/openaiCodexConfig.js';
+import { formatCodexAuthMode, isOpenAIResponsesBackendEnabled, loadCodexProviderConfig, resolveSelectedCodexAuth } from '../services/modelBackend/openaiCodexConfig.js';
 import { isAnthropicAuthEnabled } from '../utils/auth.js';
 import { normalizeApiKeyForConfig } from '../utils/authPortable.js';
 import { getCustomApiKeyStatus } from '../utils/config.js';
@@ -34,6 +34,8 @@ export function Onboarding({
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [skipOAuth, setSkipOAuth] = useState(false);
   const openAIBackend = isOpenAIResponsesBackendEnabled();
+  const openAIProvider = loadCodexProviderConfig();
+  const openAIAuth = resolveSelectedCodexAuth();
   const [oauthEnabled] = useState(() => !openAIBackend && isAnthropicAuthEnabled());
   const [theme, setTheme] = useTheme();
   useEffect(() => {
@@ -101,11 +103,14 @@ export function Onboarding({
   const openAIAuthStep = <Box flexDirection="column" gap={1} paddingLeft={1}>
       <Text bold>Credential check:</Text>
       <Box flexDirection="column" width={70} gap={1}>
-        <Text>This workspace is configured to use the OpenAI/Codex Responses backend.</Text>
-        {getOpenAIApiKey() ? <Text color="success">
-            Credentials were detected. No browser login is required.
+        <Text>This workspace is configured to use the OpenAI/Codex backend.</Text>
+        <Text dimColor>
+          Active wire API: <Text bold>{openAIProvider.wireApi}</Text>
+        </Text>
+        {openAIAuth.isCompatible ? <Text color="success">
+            Detected {formatCodexAuthMode(openAIAuth.mode)}. No browser login is required.
           </Text> : <Text color="warning">
-            No OpenAI/Codex API key was detected. Set <Text bold>OPENAI_API_KEY</Text> or add it to <Text bold>~/.codex/auth.json</Text> before sending prompts.
+            {openAIAuth.incompatibilityReason ?? 'No compatible OpenAI/Codex credential was detected before sending prompts.'}
           </Text>}
         <Text dimColor>
           Use <Text bold>/login</Text> or <Text bold>claude auth status</Text> to inspect the active credential source.
@@ -222,7 +227,7 @@ export function Onboarding({
     'confirm:yes': handleSecurityContinue
   }, {
     context: 'Confirmation',
-    isActive: currentStep?.id === 'security'
+    isActive: currentStep?.id === 'security' || currentStep?.id === 'openai-auth'
   });
   useKeybindings({
     'confirm:no': handleTerminalSetupSkip

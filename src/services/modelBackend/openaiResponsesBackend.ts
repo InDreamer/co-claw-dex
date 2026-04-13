@@ -59,6 +59,20 @@ type OpenAIInputItem =
 
 type StreamEventMessage = Extract<Message, { type: 'stream_event' }>
 
+function isSupportedMessageContentPartType(
+  partType: string | undefined,
+): boolean {
+  return (
+    partType === 'output_text' ||
+    partType === 'text' ||
+    partType === 'output_audio' ||
+    partType === 'audio' ||
+    partType === 'output_audio_transcript' ||
+    partType === 'audio_transcript' ||
+    partType === 'refusal'
+  )
+}
+
 function buildResponsesUrl(): string {
   return '/responses'
 }
@@ -401,6 +415,35 @@ function createAssistantMessagesFromResponse(
   }
 }
 
+function createAssistantMessageFromStreamedText(
+  response: OpenAIResponse,
+  model: string,
+  streamedTextByIndex: Map<number, string>,
+): AssistantMessage | undefined {
+  const blocks = [...streamedTextByIndex.entries()]
+    .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+    .map(([, text]) => text.trim())
+    .filter(Boolean)
+    .map(text => ({
+      type: 'text',
+      text,
+      citations: [],
+    }))
+
+  if (blocks.length === 0) {
+    return undefined
+  }
+
+  const message = createAssistantMessage({
+    content: blocks as never,
+    usage: mapUsage(response.usage) as never,
+  }) as AssistantMessage
+  message.requestId = response.id
+  message.message.model = model
+  message.message.id = getSharedAssistantMessageId(response)
+  return message
+}
+
 async function createResponsesRequest(params: StreamTurnParams): Promise<{
   url: string
   request: Record<string, unknown>
@@ -726,6 +769,7 @@ export async function* runOpenAIResponses(
       OpenAIResponseBuiltinToolItem | OpenAIResponseCustomToolCall
     >()
     const streamedAnnotations = new Map<string, OpenAIResponseAnnotation[]>()
+    const streamedTextByIndex = new Map<number, string>()
     const startedTextBlockIndexes = new Set<number>()
     const startedThinkingBlockIndexes = new Set<number>()
     const openToolUseBlockIndexes = new Set<number>()
@@ -794,7 +838,9 @@ export async function* runOpenAIResponses(
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
           const partType = event.part?.type
           if (
-            (partType === 'output_text' || partType === 'refusal') &&
+            (partType === 'output_text' ||
+              partType === 'text' ||
+              partType === 'refusal') &&
             !startedTextBlockIndexes.has(index)
           ) {
             startedTextBlockIndexes.add(index)
@@ -802,9 +848,7 @@ export async function* runOpenAIResponses(
           } else if (
             partType &&
             outputItemTypes.get(index) === 'message' &&
-            partType !== 'output_text' &&
-            partType !== 'output_audio' &&
-            partType !== 'refusal'
+            !isSupportedMessageContentPartType(partType)
           ) {
             maybeLogResponsesDegradation(
               'unsupported message content part',
@@ -814,10 +858,15 @@ export async function* runOpenAIResponses(
           }
           break
         }
+        case 'response.text.delta':
         case 'response.output_text.delta': {
           const text = event.delta || ''
           if (!text) break
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          streamedTextByIndex.set(
+            index,
+            `${streamedTextByIndex.get(index) ?? ''}${text}`,
+          )
           if (!startedTextBlockIndexes.has(index)) {
             startedTextBlockIndexes.add(index)
             yield createTextBlockStartStreamEvent(index)
@@ -825,19 +874,34 @@ export async function* runOpenAIResponses(
           yield createTextDeltaStreamEvent(index, text)
           break
         }
+        case 'response.text.done':
         case 'response.output_text.done': {
+          const text = event.text || ''
+          if (text) {
+            const index = getOutputIndexForStreamEvent(event, outputIndexes)
+            if (!streamedTextByIndex.has(index)) {
+              streamedTextByIndex.set(index, text)
+            }
+          }
           break
         }
+        case 'response.audio.delta':
+        case 'response.audio.done':
         case 'response.output_audio.delta':
         case 'response.output_audio.done': {
           // The local Claude-style runtime has no native audio output block.
           // Preserve the transcript via output_audio_transcript events instead.
           break
         }
+        case 'response.audio_transcript.delta':
         case 'response.output_audio_transcript.delta': {
           const text = event.delta || ''
           if (!text) break
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          streamedTextByIndex.set(
+            index,
+            `${streamedTextByIndex.get(index) ?? ''}${text}`,
+          )
           audioTranscriptStreamedParts.add(
             getStreamContentPartKey(event, outputIndexes),
           )
@@ -848,6 +912,7 @@ export async function* runOpenAIResponses(
           yield createTextDeltaStreamEvent(index, text)
           break
         }
+        case 'response.audio_transcript.done':
         case 'response.output_audio_transcript.done': {
           const text = event.transcript || ''
           if (!text) break
@@ -858,6 +923,9 @@ export async function* runOpenAIResponses(
 
           audioTranscriptStreamedParts.add(key)
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          if (!streamedTextByIndex.has(index)) {
+            streamedTextByIndex.set(index, text)
+          }
           if (!startedTextBlockIndexes.has(index)) {
             startedTextBlockIndexes.add(index)
             yield createTextBlockStartStreamEvent(index)
@@ -869,6 +937,10 @@ export async function* runOpenAIResponses(
           const text = event.delta || ''
           if (!text) break
           const index = getOutputIndexForStreamEvent(event, outputIndexes)
+          streamedTextByIndex.set(
+            index,
+            `${streamedTextByIndex.get(index) ?? ''}${text}`,
+          )
           if (!startedTextBlockIndexes.has(index)) {
             startedTextBlockIndexes.add(index)
             yield createTextBlockStartStreamEvent(index)
@@ -1021,6 +1093,7 @@ export async function* runOpenAIResponses(
           })
           break
         }
+        case 'response.text.annotation.added':
         case 'response.output_text.annotation.added': {
           if (!event.annotation || !event.item_id) {
             break
@@ -1126,6 +1199,20 @@ export async function* runOpenAIResponses(
         model,
         streamedAnnotations,
     )
+
+    const streamedTextFallback =
+      assistantMessages.length === 0
+        ? createAssistantMessageFromStreamedText(
+            completedResponse,
+            model,
+            streamedTextByIndex,
+          )
+        : undefined
+
+    if (streamedTextFallback) {
+      yield streamedTextFallback
+      return
+    }
 
     if (assistantMessages.length === 0) {
       yield createAssistantAPIErrorMessage({

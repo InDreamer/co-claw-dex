@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { join } from 'path'
 
 const MOCK_HOME = '/mock-home'
+const DEFAULT_CONFIG_PATH = join(MOCK_HOME, '.codex', 'config.toml')
+const DEFAULT_AUTH_PATH = join(MOCK_HOME, '.codex', 'auth.json')
 const ENV_KEYS = [
   'OPENAI_MODEL',
   'OPENAI_BASE_URL',
@@ -11,6 +14,7 @@ const ENV_KEYS = [
   'CUBENCE_DISABLE_RESPONSE_STORAGE',
   'CUBENCE_MODEL_BACKEND',
   'CLAUDE_CODE_MODEL_BACKEND',
+  'COCLAWDEX_CONFIG_PATH',
 ] as const
 const ORIGINAL_ENV = Object.fromEntries(
   ENV_KEYS.map(key => [key, process.env[key]]),
@@ -42,11 +46,13 @@ async function loadCodexConfigModule(options?: {
   }
 
   const files = new Map<string, string>()
+  const configPath =
+    options?.env?.COCLAWDEX_CONFIG_PATH || DEFAULT_CONFIG_PATH
   if (options?.configToml !== undefined) {
-    files.set(`${MOCK_HOME}/.codex/config.toml`, options.configToml)
+    files.set(configPath, options.configToml)
   }
   if (options?.authJson !== undefined) {
-    files.set(`${MOCK_HOME}/.codex/auth.json`, options.authJson)
+    files.set(DEFAULT_AUTH_PATH, options.authJson)
   }
 
   vi.resetModules()
@@ -59,12 +65,19 @@ async function loadCodexConfigModule(options?: {
       }
       return value
     },
+    mkdirSync: vi.fn(),
+    writeFileSync: (path: string, value: string) => {
+      files.set(String(path), value)
+    },
   }))
   vi.doMock('os', () => ({
     homedir: () => MOCK_HOME,
   }))
 
-  return import('../../../src/services/modelBackend/openaiCodexConfig.ts')
+  return {
+    files,
+    mod: await import('../../../src/services/modelBackend/openaiCodexConfig.ts'),
+  }
 }
 
 afterEach(() => {
@@ -74,250 +87,249 @@ afterEach(() => {
   vi.unmock('os')
 })
 
-describe('openaiCodexConfig fork contracts', () => {
-  it('[P0:model] falls back to the fork default OpenAI provider config when ~/.codex/config.toml is absent', async () => {
-    const defaults = await loadCodexConfigModule()
+describe('openaiCodexConfig official-Codex alignment', () => {
+  it('[P0:model] falls back to the default provider config and default config path when no config file exists', async () => {
+    const { mod } = await loadCodexConfigModule()
 
-    expect(defaults.loadCodexProviderConfig()).toEqual({
+    expect(mod.loadCodexProviderConfig()).toEqual({
       providerId: 'openai',
       model: 'gpt-5.4',
       disableResponseStorage: true,
       baseUrl: 'https://api.openai.com/v1',
+      configuredBaseUrl: undefined,
       wireApi: 'responses',
+      wireApiError: undefined,
       requiresOpenAIAuth: false,
       promptCacheRetention: undefined,
       modelContextWindow: undefined,
       reasoningEffort: undefined,
     })
-    expect(defaults.resolveOpenAIBaseUrl()).toBe('https://api.openai.com/v1')
-    expect(defaults.shouldStoreOpenAIResponses()).toBe(false)
+    expect(mod.resolveCodexConfigPathInfo()).toEqual({
+      path: DEFAULT_CONFIG_PATH,
+      source: 'default',
+    })
+    expect(mod.resolveSelectedCodexAuth()).toEqual({
+      mode: 'none',
+      source: 'none',
+      wireApi: 'responses',
+      isCompatible: false,
+      incompatibilityReason:
+        `未检测到 OpenAI/Codex 凭据。请设置 OPENAI_API_KEY，或在 ${DEFAULT_AUTH_PATH} 中提供 ChatGPT/Codex 登录态或 OPENAI_API_KEY。`,
+    })
+    expect(mod.resolveOpenAIBaseUrl()).toBe('https://api.openai.com/v1')
+    expect(mod.shouldStoreOpenAIResponses()).toBe(false)
   })
 
-  it('[P0:model] falls back away from bare Claude-family currentModel values to the configured OpenAI default', async () => {
-    const fromEnv = await loadCodexConfigModule({
-      env: { OPENAI_MODEL: 'haiku' },
-    })
-    expect(fromEnv.resolveOpenAIModel('claude')).toBe('gpt-5-mini')
-
-    const fromConfig = await loadCodexConfigModule({
-      configToml: 'model = "best"\n',
-    })
-    expect(fromConfig.resolveOpenAIModel('claude-custom')).toBe('gpt-5.4')
-  })
-
-  it('[P0:model] resolves model selection by current argument before env and config, with alias normalization at each layer', async () => {
-    const withEnvAndConfig = await loadCodexConfigModule({
-      configToml: 'model = "haiku"\n',
-      env: { OPENAI_MODEL: 'best' },
-    })
-    expect(withEnvAndConfig.resolveOpenAIModel(undefined)).toBe('gpt-5.4')
-    expect(withEnvAndConfig.resolveOpenAIModel('sonnet')).toBe('gpt-5.2')
-
-    const configOnly = await loadCodexConfigModule({
-      configToml: 'model = "haiku"\n',
-    })
-    expect(configOnly.resolveOpenAIModel(undefined)).toBe('gpt-5-mini')
-  })
-
-  it('[P0:model] returns no auth key and no optional overrides when auth/config values are malformed', async () => {
-    const malformed = await loadCodexConfigModule({
-      configToml: [
-        'prompt_cache_retention = "forever"',
-        'model_context_window = 0',
-        'model_reasoning_effort = "wild"',
-      ].join('\n'),
-      authJson: '{not-json',
-    })
-
-    expect(malformed.getOpenAIApiKey()).toBeUndefined()
-    expect(malformed.resolveOpenAIPromptCacheRetention()).toBeUndefined()
-    expect(malformed.resolveOpenAIConfiguredContextWindow()).toBeUndefined()
-    expect(malformed.resolveOpenAIReasoningEffort()).toBeUndefined()
-  })
-
-  it('[P0:model] falls back to default transport/auth settings when model_provider selects a section that is missing from the config', async () => {
-    const missingProviderSection = await loadCodexConfigModule({
+  it('[P0:model] reads provider config from COCLAWDEX_CONFIG_PATH and rejects non-responses wire_api values explicitly', async () => {
+    const { mod } = await loadCodexConfigModule({
       configToml: [
         'model_provider = "corp"',
         'model = "sonnet"',
-        'prompt_cache_retention = "24h"',
-      ].join('\n'),
-    })
-
-    expect(missingProviderSection.loadCodexProviderConfig()).toEqual({
-      providerId: 'corp',
-      model: 'gpt-5.2',
-      disableResponseStorage: true,
-      baseUrl: 'https://api.openai.com/v1',
-      wireApi: 'responses',
-      requiresOpenAIAuth: false,
-      promptCacheRetention: '24h',
-      modelContextWindow: undefined,
-      reasoningEffort: undefined,
-    })
-    expect(missingProviderSection.resolveOpenAIBaseUrl()).toBe('https://api.openai.com/v1')
-    expect(missingProviderSection.shouldUseOpenAIOfficialClientHeaders()).toBe(false)
-  })
-
-  it('[P0:model] reads base URL, wire API, auth gating, and provider-scoped overrides from the selected non-default provider section', async () => {
-    const customProvider = await loadCodexConfigModule({
-      configToml: [
-        'model_provider = "corp"',
-        'model = "haiku"',
-        '[model_providers.openai]',
-        'base_url = "https://ignored.example.com/v1"',
         '[model_providers.corp]',
         'base_url = "https://corp.example.com/v1/responses/"',
-        'wire_api = "chat_completions"',
-        'requires_openai_auth = true',
-        'prompt_cache_retention = "24h"',
-        'model_context_window = 777777',
-        'model_reasoning_effort = "max"',
+        'wire_api = "wham_tasks"',
       ].join('\n'),
+      authJson: JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          account_id: 'account-id',
+        },
+      }),
+      env: {
+        COCLAWDEX_CONFIG_PATH: '/alt/config_for_coclawdex.toml',
+      },
     })
 
-    expect(customProvider.loadCodexProviderConfig()).toEqual({
-      providerId: 'corp',
-      model: 'gpt-5-mini',
-      disableResponseStorage: true,
-      baseUrl: 'https://corp.example.com/v1',
-      wireApi: 'chat_completions',
-      requiresOpenAIAuth: true,
-      promptCacheRetention: '24h',
-      modelContextWindow: 777777,
-      reasoningEffort: 'xhigh',
+    expect(mod.resolveCodexConfigPathInfo()).toEqual({
+      path: '/alt/config_for_coclawdex.toml',
+      source: 'COCLAWDEX_CONFIG_PATH',
     })
-    expect(customProvider.resolveOpenAIBaseUrl()).toBe('https://corp.example.com/v1')
-    expect(customProvider.shouldUseOpenAIOfficialClientHeaders()).toBe(true)
-    expect(customProvider.resolveOpenAIPromptCacheRetention()).toBe('24h')
-    expect(customProvider.resolveOpenAIConfiguredContextWindow('haiku')).toBe(777777)
-    expect(customProvider.resolveOpenAIReasoningEffort()).toBe('xhigh')
+    expect(mod.loadCodexProviderConfig()).toMatchObject({
+      providerId: 'corp',
+      model: 'gpt-5.2',
+      baseUrl: 'https://corp.example.com/v1',
+      configuredBaseUrl: 'https://corp.example.com/v1',
+      wireApi: 'wham_tasks',
+      wireApiError:
+        '当前配置的 wire_api = "wham_tasks" 无效。OpenAI/Codex 公开 CLI 仅支持 wire_api = "responses"。',
+    })
+    expect(mod.resolveSelectedCodexAuth()).toMatchObject({
+      mode: 'chatgpt',
+      source: 'auth_json_chatgpt',
+      wireApi: 'wham_tasks',
+      isCompatible: false,
+      incompatibilityReason:
+        '当前配置的 wire_api = "wham_tasks" 无效。OpenAI/Codex 公开 CLI 仅支持 wire_api = "responses"。',
+    })
   })
 
-  it('[P0:model] normalizes base URLs and falls back from env auth to ~/.codex/auth.json', async () => {
-    const fromConfigAndAuth = await loadCodexConfigModule({
-      configToml: '[model_providers.openai]\nbase_url = "https://proxy.example.com/v1/responses/"\n',
-      authJson: '{"OPENAI_API_KEY":" file-key "}',
-    })
-    expect(fromConfigAndAuth.resolveOpenAIBaseUrl()).toBe('https://proxy.example.com/v1')
-    expect(fromConfigAndAuth.getOpenAIApiKey()).toBe('file-key')
-
-    const fromEnv = await loadCodexConfigModule({
-      authJson: '{"OPENAI_API_KEY":"file-key"}',
+  it('[P0:model] prefers the ChatGPT/Codex login session over env and file API keys, and switches the default base URL to chatgpt.com/backend-api/codex', async () => {
+    const { mod } = await loadCodexConfigModule({
+      authJson: JSON.stringify({
+        OPENAI_API_KEY: 'file-key',
+        auth_mode: 'chatgpt',
+        last_refresh: '2026-04-01T00:00:00.000Z',
+        tokens: {
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          account_id: 'account-id',
+          id_token: 'id-token',
+        },
+      }),
       env: {
-        OPENAI_BASE_URL: 'https://override.example.com/v1/responses/',
         OPENAI_API_KEY: 'env-key',
       },
     })
-    expect(fromEnv.resolveOpenAIBaseUrl()).toBe('https://override.example.com/v1')
-    expect(fromEnv.getOpenAIApiKey()).toBe('env-key')
+
+    expect(mod.loadCodexAuthConfig()).toEqual({
+      mode: 'chatgpt',
+      source: 'auth_json_chatgpt',
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      accountId: 'account-id',
+      idToken: 'id-token',
+      lastRefresh: '2026-04-01T00:00:00.000Z',
+    })
+    expect(mod.resolveSelectedCodexAuth()).toEqual({
+      mode: 'chatgpt',
+      source: 'auth_json_chatgpt',
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      accountId: 'account-id',
+      idToken: 'id-token',
+      lastRefresh: '2026-04-01T00:00:00.000Z',
+      wireApi: 'responses',
+      isCompatible: true,
+    })
+    expect(mod.resolveOpenAIBaseUrl()).toBe(
+      'https://chatgpt.com/backend-api/codex',
+    )
+    expect(mod.getOpenAIApiKey()).toBeUndefined()
   })
 
-  it('[P0:model] lets top-level prompt-cache retention, context window, and reasoning effort override provider-section values', async () => {
-    const overridden = await loadCodexConfigModule({
-      configToml: [
-        'model_provider = "corp"',
-        'model = "sonnet"',
-        'prompt_cache_retention = "in-memory"',
-        'model_context_window = 123456',
-        'model_reasoning_effort = "medium"',
-        '[model_providers.corp]',
-        'prompt_cache_retention = "24h"',
-        'model_context_window = 777777',
-        'model_reasoning_effort = "max"',
-      ].join('\n'),
+  it('[P0:model] falls back to env and file API keys only when no login session exists', async () => {
+    const { mod: envPreferred } = await loadCodexConfigModule({
+      authJson: JSON.stringify({
+        OPENAI_API_KEY: 'file-key',
+      }),
+      env: {
+        OPENAI_API_KEY: 'env-key',
+      },
     })
 
-    expect(overridden.resolveOpenAIPromptCacheRetention()).toBe('in_memory')
-    expect(overridden.resolveOpenAIConfiguredContextWindow('sonnet')).toBe(123456)
-    expect(overridden.resolveOpenAIReasoningEffort()).toBe('medium')
+    expect(envPreferred.resolveSelectedCodexAuth()).toEqual({
+      mode: 'api_key',
+      source: 'OPENAI_API_KEY',
+      openaiApiKey: 'env-key',
+      wireApi: 'responses',
+      isCompatible: true,
+    })
+    expect(envPreferred.resolveOpenAIBaseUrl()).toBe('https://api.openai.com/v1')
+    expect(envPreferred.getOpenAIApiKey()).toBe('env-key')
+
+    const { mod: fileFallback } = await loadCodexConfigModule({
+      authJson: JSON.stringify({
+        OPENAI_API_KEY: 'file-key',
+      }),
+    })
+    expect(fileFallback.resolveSelectedCodexAuth()).toEqual({
+      mode: 'api_key',
+      source: 'auth_json_api_key',
+      openaiApiKey: 'file-key',
+      wireApi: 'responses',
+      isCompatible: true,
+    })
+    expect(fileFallback.getOpenAIApiKey()).toBe('file-key')
   })
 
-  it('[P0:model] normalizes prompt-cache retention, exposes official-client-header gating, and respects backend selection envs', async () => {
-    const configured = await loadCodexConfigModule({
+  it('[P0:model] honors explicit provider and environment base URL overrides ahead of auth-based defaults', async () => {
+    const { mod: fromConfig } = await loadCodexConfigModule({
       configToml: [
-        'prompt_cache_retention = "in-memory"',
+        'model_provider = "openai"',
         '[model_providers.openai]',
-        'requires_openai_auth = true',
+        'base_url = "https://proxy.example.com/v1/responses/"',
       ].join('\n'),
+      authJson: JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          account_id: 'account-id',
+        },
+      }),
     })
+    expect(fromConfig.resolveOpenAIBaseUrl()).toBe('https://proxy.example.com/v1')
 
-    expect(configured.resolveOpenAIPromptCacheRetention()).toBe('in_memory')
-    expect(configured.shouldUseOpenAIOfficialClientHeaders()).toBe(true)
-    expect(configured.isOpenAIResponsesBackendEnabled()).toBe(true)
-
-    const claudeBackend = await loadCodexConfigModule({
-      env: { CLAUDE_CODE_MODEL_BACKEND: 'claude' },
-    })
-    expect(claudeBackend.isOpenAIResponsesBackendEnabled()).toBe(false)
-
-    const cubenceOverride = await loadCodexConfigModule({
+    const { mod: fromEnv } = await loadCodexConfigModule({
+      authJson: JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          account_id: 'account-id',
+        },
+      }),
       env: {
-        CLAUDE_CODE_MODEL_BACKEND: 'claude',
-        CUBENCE_MODEL_BACKEND: 'openaiResponses',
+        OPENAI_BASE_URL: 'https://env.example.com/v1/responses/',
       },
     })
-    expect(cubenceOverride.isOpenAIResponsesBackendEnabled()).toBe(true)
+    expect(fromEnv.resolveOpenAIBaseUrl()).toBe('https://env.example.com/v1')
   })
 
-  it('[P0:model] keeps the selected provider section baseUrl in config but lets resolveOpenAIBaseUrl apply OPENAI_BASE_URL on top', async () => {
-    const overridden = await loadCodexConfigModule({
-      configToml: [
-        'model_provider = "corp"',
-        '[model_providers.corp]',
-        'base_url = "https://corp.example.com/v1/responses/"',
-      ].join('\n'),
-      env: {
-        OPENAI_BASE_URL: 'https://env-override.example.com/v1/responses/',
+  it('[P0:model] returns a structured auth error when auth.json is malformed', async () => {
+    const { mod } = await loadCodexConfigModule({
+      authJson: '{not-json',
+    })
+
+    expect(mod.loadCodexAuthConfig()).toEqual({
+      mode: 'none',
+      source: 'none',
+      error: `无法解析 ${DEFAULT_AUTH_PATH}。请确认它是合法 JSON。`,
+    })
+    expect(mod.resolveSelectedCodexAuth()).toEqual({
+      mode: 'none',
+      source: 'none',
+      error: `无法解析 ${DEFAULT_AUTH_PATH}。请确认它是合法 JSON。`,
+      wireApi: 'responses',
+      isCompatible: false,
+      incompatibilityReason: `无法解析 ${DEFAULT_AUTH_PATH}。请确认它是合法 JSON。`,
+    })
+  })
+
+  it('[P0:model] persists refreshed ChatGPT/Codex tokens back to auth.json while preserving existing id_token and OPENAI_API_KEY', async () => {
+    const { mod, files } = await loadCodexConfigModule({
+      authJson: JSON.stringify({
+        OPENAI_API_KEY: 'file-key',
+        auth_mode: 'chatgpt',
+        last_refresh: '2026-04-01T00:00:00.000Z',
+        tokens: {
+          access_token: 'old-access-token',
+          refresh_token: 'old-refresh-token',
+          account_id: 'account-id',
+          id_token: 'kept-id-token',
+        },
+      }),
+    })
+
+    mod.persistChatGPTAuthRefresh({
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+      accountId: 'account-id',
+      lastRefresh: '2026-04-13T00:00:00.000Z',
+    })
+
+    expect(JSON.parse(files.get(DEFAULT_AUTH_PATH)!)).toEqual({
+      OPENAI_API_KEY: 'file-key',
+      auth_mode: 'chatgpt',
+      last_refresh: '2026-04-13T00:00:00.000Z',
+      tokens: {
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+        account_id: 'account-id',
+        id_token: 'kept-id-token',
       },
     })
-
-    expect(overridden.loadCodexProviderConfig().baseUrl).toBe(
-      'https://corp.example.com/v1',
-    )
-    expect(overridden.resolveOpenAIBaseUrl()).toBe(
-      'https://env-override.example.com/v1',
-    )
-  })
-
-  it('[P0:model] lets OPENAI_MODEL_CONTEXT_WINDOW and OPENAI_REASONING_EFFORT env overrides beat config values', async () => {
-    const overridden = await loadCodexConfigModule({
-      configToml: [
-        'model = "sonnet"',
-        'model_context_window = 123456',
-        'model_reasoning_effort = "low"',
-      ].join('\n'),
-      env: {
-        OPENAI_MODEL_CONTEXT_WINDOW: '654321',
-        OPENAI_REASONING_EFFORT: 'minimal',
-      },
-    })
-
-    expect(overridden.resolveOpenAIConfiguredContextWindow()).toBe(654321)
-    expect(overridden.resolveOpenAIConfiguredContextWindow('sonnet')).toBe(654321)
-    expect(overridden.resolveOpenAIConfiguredContextWindow('haiku')).toBe(654321)
-    expect(overridden.resolveOpenAIReasoningEffort()).toBe('minimal')
-  })
-
-  it('[P0:model] uses provider config for response storage, context windows, and reasoning effort unless an explicit env override disables storage', async () => {
-    const providerConfig = await loadCodexConfigModule({
-      configToml: [
-        'model = "sonnet"',
-        'disable_response_storage = false',
-        'model_context_window = 123456',
-        'model_reasoning_effort = "max"',
-      ].join('\n'),
-    })
-
-    expect(providerConfig.shouldStoreOpenAIResponses()).toBe(true)
-    expect(providerConfig.resolveOpenAIConfiguredContextWindow('sonnet')).toBe(123456)
-    expect(providerConfig.resolveOpenAIConfiguredContextWindow('haiku')).toBeUndefined()
-    expect(providerConfig.resolveOpenAIReasoningEffort()).toBe('xhigh')
-
-    const envOverride = await loadCodexConfigModule({
-      configToml: 'disable_response_storage = false\n',
-      env: { CUBENCE_DISABLE_RESPONSE_STORAGE: '1' },
-    })
-    expect(envOverride.shouldStoreOpenAIResponses()).toBe(false)
   })
 })
